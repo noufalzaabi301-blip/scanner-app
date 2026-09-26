@@ -6,8 +6,10 @@ import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import HomeScreen from "./screens/HomeScreen";
+import WelcomeScreen from "./screens/WelcomeScreen";
 
 export type RootStackParamList = {
+  Welcome: undefined;
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
@@ -22,7 +24,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName="Login"
+        initialRouteName="Welcome"
         screenOptions={{
           headerTintColor: "#176B43",
           headerTitleStyle: {
@@ -31,15 +33,20 @@ export default function App() {
         }}
       >
         <Stack.Screen
-          name="Login"
-          component={LoginScreen}
-          options={{ headerShown: false }}
-        />
+  name="Welcome"
+  component={WelcomeScreen}
+  options={{ headerShown: false }}
+/>
+        <Stack.Screen
+  name="Login"
+  component={LoginScreen}
+  options={{ title: "Back" }}
+/>
 
         <Stack.Screen
           name="Register"
           component={RegisterScreen}
-          options={{ title: "Create account" }}
+          options={{ title: "Back" }}
         />
 
         <Stack.Screen

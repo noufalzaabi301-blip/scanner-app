@@ -14,58 +14,65 @@ import {
 export default function ForgotPasswordScreen() {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
-  async function sendResetLink() {
-  const cleanEmail = email.trim().toLowerCase();
 
-  if (!cleanEmail) {
-    const message = "Enter your email address.";
-
+  function showMessage(title: string, message: string) {
     if (Platform.OS === "web") {
-      window.alert(message);
+      window.alert(`${title}\n\n${message}`);
     } else {
-      Alert.alert("Missing email", message);
+      Alert.alert(title, message);
     }
-
-    return;
   }
 
-  setLoading(true);
+  async function sendResetLink() {
+    const cleanEmail = email.trim().toLowerCase();
 
-  try {
-    const { error } =
-      await supabase.auth.resetPasswordForEmail(cleanEmail);
-
-    if (error) {
-      if (Platform.OS === "web") {
-        window.alert(error.message);
-      } else {
-        Alert.alert("Reset failed", error.message);
-      }
-
+    if (!cleanEmail) {
+      showMessage("Missing email", "Enter your email address.");
       return;
     }
 
-    const message =
-      "If an account exists for this email, a password-reset link has been sent. Check your inbox and spam folder.";
+    setLoading(true);
 
-    if (Platform.OS === "web") {
-      window.alert(message);
-    } else {
-      Alert.alert("Check your email", message);
-    }
-  } catch {
-    const message =
-      "Could not contact the password-reset service.";
+    try {
+      const { data: accountExists, error: checkError } =
+        await supabase.rpc("is_registered_email", {
+          check_email: cleanEmail,
+        });
 
-    if (Platform.OS === "web") {
-      window.alert(message);
-    } else {
-      Alert.alert("Connection problem", message);
+      if (checkError) {
+        showMessage("Check failed", checkError.message);
+        return;
+      }
+
+      if (!accountExists) {
+        showMessage(
+          "Account not found",
+          "No account is registered with this email address."
+        );
+        return;
+      }
+
+      const { error: resetError } =
+        await supabase.auth.resetPasswordForEmail(cleanEmail);
+
+      if (resetError) {
+        showMessage("Reset failed", resetError.message);
+        return;
+      }
+
+      showMessage(
+        "Check your email",
+        "A password-reset link has been sent. Check your inbox and spam folder."
+      );
+    } catch {
+      showMessage(
+        "Connection problem",
+        "Could not contact the password-reset service."
+      );
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
   }
-}
 
   return (
     <SafeAreaView style={styles.page}>
@@ -82,21 +89,19 @@ export default function ForgotPasswordScreen() {
           onChangeText={setEmail}
           keyboardType="email-address"
           autoCapitalize="none"
+          autoCorrect={false}
           placeholder="name@example.com"
         />
 
         <TouchableOpacity
-  style={[
-    styles.button,
-    loading && { opacity: 0.6 },
-  ]}
-  onPress={sendResetLink}
-  disabled={loading}
->
-  <Text style={styles.buttonText}>
-    {loading ? "Sending..." : "Send reset link"}
-  </Text>
-</TouchableOpacity>
+          style={[styles.button, loading && styles.disabledButton]}
+          onPress={sendResetLink}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? "Sending..." : "Send reset link"}
+          </Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -143,6 +148,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 15,
     alignItems: "center",
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   buttonText: {
     color: "#FFFFFF",

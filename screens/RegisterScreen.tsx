@@ -3,15 +3,17 @@ import { useState } from "react";
 import {
   Alert,
   Platform,
-  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-//comment test
+
 export default function RegisterScreen({ navigation }: any) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -26,78 +28,112 @@ export default function RegisterScreen({ navigation }: any) {
   }
 
   async function createAccount() {
-  const cleanEmail = email.trim().toLowerCase();
+    const cleanFirstName = firstName.trim();
+    const cleanLastName = lastName.trim();
+    const cleanEmail = email.trim().toLowerCase();
 
-  if (!cleanEmail || !password || !confirmPassword) {
-    showMessage(
-      "Missing information",
-      "Please complete every field."
-    );
-    return;
+    if (
+      !cleanFirstName ||
+      !cleanLastName ||
+      !cleanEmail ||
+      !password ||
+      !confirmPassword
+    ) {
+      showMessage("Missing information", "Please complete every field.");
+      return;
+    }
+
+    if (password.length < 8) {
+      showMessage(
+        "Password too short",
+        "Your password must contain at least 8 characters."
+      );
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      showMessage(
+        "Passwords do not match",
+        "Enter the same password in both password fields."
+      );
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          data: {
+            first_name: cleanFirstName,
+            last_name: cleanLastName,
+            full_name: `${cleanFirstName} ${cleanLastName}`,
+          },
+        },
+      });
+
+      if (error) {
+        showMessage("Account creation failed", error.message);
+        return;
+      }
+
+      if (data.session) {
+        navigation.replace("PrivacyNotice");
+      } else {
+        showMessage(
+          "Verify your email",
+          "We sent a verification link to your email address."
+        );
+        navigation.replace("Login");
+      }
+    } catch {
+      showMessage(
+        "Connection problem",
+        "Could not create your account. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
-
-  if (password.length < 8) {
-    showMessage(
-      "Password too short",
-      "Your password must contain at least 8 characters."
-    );
-    return;
-  }
-
-  if (password !== confirmPassword) {
-    showMessage(
-      "Passwords do not match",
-      "Enter the same password in both password fields."
-    );
-    return;
-  }
-
-  setLoading(true);
-
-  const { data, error } = await supabase.auth.signUp({
-    email: cleanEmail,
-    password,
-  });
-
-  setLoading(false);
-
-  if (error) {
-    showMessage("Account creation failed", error.message);
-    return;
-  }
-
-  if (!data.session) {
-    showMessage(
-      "Verify your email",
-      "We sent a verification link to your email address."
-    );
-  } else {
-    showMessage(
-      "Account created",
-      "Your account was created successfully."
-    );
-  }
-
-  navigation.replace("Login");
-}
 
   return (
-    <SafeAreaView style={styles.page}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Create your account</Text>
+    <ScrollView
+      contentContainerStyle={styles.page}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.content}>
+        <Text style={styles.title}>Get started</Text>
+        <Text style={styles.subtitle}>Create your free LabelLens account</Text>
 
-        <Text style={styles.subtitle}>
-          Save your scans and product history
-        </Text>
+        <Text style={styles.label}>First Name</Text>
+        <TextInput
+          style={styles.input}
+          value={firstName}
+          onChangeText={setFirstName}
+          placeholder="Your first name"
+          autoCapitalize="words"
+        />
 
-        <Text style={styles.label}>Email address</Text>
+        <Text style={styles.label}>Last Name</Text>
+        <TextInput
+          style={styles.input}
+          value={lastName}
+          onChangeText={setLastName}
+          placeholder="Your last name"
+          autoCapitalize="words"
+        />
+
+        <Text style={styles.label}>Email</Text>
         <TextInput
           style={styles.input}
           value={email}
           onChangeText={setEmail}
+          placeholder="you@example.com"
           keyboardType="email-address"
           autoCapitalize="none"
-          placeholder="name@example.com"
+          autoCorrect={false}
         />
 
         <Text style={styles.label}>Password</Text>
@@ -105,97 +141,87 @@ export default function RegisterScreen({ navigation }: any) {
           style={styles.input}
           value={password}
           onChangeText={setPassword}
-          secureTextEntry
           placeholder="At least 8 characters"
+          secureTextEntry
         />
 
-        <Text style={styles.label}>Confirm password</Text>
+        <Text style={styles.label}>Confirm Password</Text>
         <TextInput
           style={styles.input}
           value={confirmPassword}
           onChangeText={setConfirmPassword}
+          placeholder="Enter your password again"
           secureTextEntry
-          placeholder="Enter password again"
         />
 
         <TouchableOpacity
-  style={[
-    styles.button,
-    loading && { opacity: 0.6 },
-  ]}
-  onPress={createAccount}
-  disabled={loading}
->
-  <Text style={styles.buttonText}>
-    {loading ? "Creating account..." : "Create account"}
-  </Text>
-</TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.link}>
-            Already have an account? Log in
+          style={[styles.button, loading && styles.disabledButton]}
+          onPress={createAccount}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? "Creating account..." : "Continue"}
           </Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   page: {
-    flex: 1,
-    backgroundColor: "#F1F7F3",
+    flexGrow: 1,
+    backgroundColor: "#FCFDFB",
     alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
+    paddingHorizontal: 28,
+    paddingVertical: 30,
   },
-  card: {
-    backgroundColor: "#FFFFFF",
+  content: {
     width: "100%",
-    maxWidth: 430,
-    borderRadius: 24,
-    padding: 30,
+    maxWidth: 320,
   },
   title: {
-    color: "#17452F",
-    fontSize: 28,
-    fontWeight: "bold",
-    textAlign: "center",
+    color: "#163D2A",
+    fontSize: 24,
+    fontWeight: "700",
   },
   subtitle: {
-    color: "#68766F",
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 28,
+    color: "#63776B",
+    fontSize: 13,
+    marginTop: 5,
+    marginBottom: 21,
   },
   label: {
-    color: "#263E32",
-    fontWeight: "600",
+    color: "#264C37",
+    fontSize: 13,
+    fontWeight: "500",
     marginBottom: 7,
   },
   input: {
-    borderColor: "#C9D8CF",
+    minHeight: 46,
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    marginBottom: 18,
+    borderColor: "#DCE5DE",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: "#1D3829",
+    marginBottom: 15,
   },
   button: {
-    backgroundColor: "#176B43",
+    minHeight: 48,
+    backgroundColor: "#258D4D",
     borderRadius: 12,
-    padding: 15,
+    justifyContent: "center",
     alignItems: "center",
+    marginTop: 4,
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   buttonText: {
     color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  link: {
-    color: "#176B43",
-    textAlign: "center",
-    fontWeight: "600",
-    marginTop: 22,
+    fontSize: 14,
+    fontWeight: "700",
   },
 });
