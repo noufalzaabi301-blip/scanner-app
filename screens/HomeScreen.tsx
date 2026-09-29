@@ -5,6 +5,7 @@ import {
   type BarcodeScanningResult,
 } from "expo-camera";
 import {
+   Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -187,26 +188,70 @@ export default function HomeScreen({ navigation }: any) {
             ingredient label.
           </Text>
         </View>
-
-        <TouchableOpacity
-          style={styles.profileButton}
-          onPress={() => navigation.navigate("Profile")}
-        >
-          <Text style={styles.profileButtonText}>Profile</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.loginButton}
-          onPress={() => navigation.replace("Login")}
-        >
-          <Text style={styles.loginButtonText}>Return to login</Text>
-        </TouchableOpacity>
+        
       </ScrollView>
+      <View style={styles.bottomBar}>
+  <View style={styles.navItem}>
+    <Text style={[styles.navIcon, styles.activeNavIcon]}>▣</Text>
+    <Text style={[styles.navText, styles.activeNavText]}>Scan</Text>
+  </View>
+
+  <TouchableOpacity
+    style={styles.navItem}
+    onPress={() =>
+      Alert.alert("Coming soon", "The Avoid page will be added soon.")
+    }
+  >
+    <Text style={styles.navIcon}>☰</Text>
+    <Text style={styles.navText}>Avoid</Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={styles.navItem}
+    onPress={() => navigation.navigate("Profile")}
+  >
+    <Text style={styles.navIcon}>♙</Text>
+    <Text style={styles.navText}>Profile</Text>
+  </TouchableOpacity>
+</View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  bottomBar: {
+  flexDirection: "row",
+  backgroundColor: "#FFFFFF",
+  borderTopWidth: 1,
+  borderTopColor: "#DDE6E0",
+  paddingTop: 9,
+  paddingBottom: 12,
+},
+
+navItem: {
+  flex: 1,
+  alignItems: "center",
+},
+
+navIcon: {
+  color: "#68766F",
+  fontSize: 17,
+  marginBottom: 3,
+},
+
+activeNavIcon: {
+  color: "#176B43",
+},
+
+navText: {
+  color: "#68766F",
+  fontSize: 11,
+},
+
+activeNavText: {
+  color: "#176B43",
+  fontWeight: "bold",
+},
   page: {
     flex: 1,
     backgroundColor: "#F1F7F3",
