@@ -7,6 +7,7 @@ import RegisterScreen from "./screens/RegisterScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import HomeScreen from "./screens/HomeScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
+import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -16,13 +17,21 @@ export type RootStackParamList = {
   PrivacyNotice: undefined;
   Preferences: undefined;
   Home: undefined;
+  ResetPassword: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
-
+const linking = {
+  prefixes: ["http://localhost:8081"],
+  config: {
+    screens: {
+      ResetPassword: "reset-password",
+    },
+  },
+};
 export default function App() {
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking}>
       <Stack.Navigator
         initialRouteName="Welcome"
         screenOptions={{
@@ -55,7 +64,11 @@ export default function App() {
           options={{ title: "Reset password" }}
         />
         
-
+<Stack.Screen
+  name="ResetPassword"
+  component={ResetPasswordScreen}
+  options={{ title: "Reset password" }}
+/>
         <Stack.Screen
   name="PrivacyNotice"
   component={PrivacyNoticeScreen}
