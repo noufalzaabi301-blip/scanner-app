@@ -8,6 +8,7 @@ import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import HomeScreen from "./screens/HomeScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen";
+import ProfileScreen from "./screens/ProfileScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -18,6 +19,7 @@ export type RootStackParamList = {
   Preferences: undefined;
   Home: undefined;
   ResetPassword: undefined;
+  Profile: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -46,6 +48,12 @@ export default function App() {
   component={WelcomeScreen}
   options={{ headerShown: false }}
 />
+<Stack.Screen
+  name="Profile"
+  component={ProfileScreen}
+  options={{ headerShown: false }}
+/>
+
         <Stack.Screen
   name="Login"
   component={LoginScreen}
@@ -94,6 +102,7 @@ export default function App() {
             headerBackVisible: false,
           }}
         />
+       
       </Stack.Navigator>
     </NavigationContainer>
   );

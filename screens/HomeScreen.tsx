@@ -7,6 +7,7 @@ import {
 
 export default function HomeScreen({ navigation }: any) {
   return (
+    
     <SafeAreaView style={styles.page}>
       <Text style={styles.title}>Welcome to LabelLens</Text>
 
@@ -20,7 +21,14 @@ export default function HomeScreen({ navigation }: any) {
       >
         <Text style={styles.buttonText}>Return to login</Text>
       </TouchableOpacity>
+      <TouchableOpacity
+  style={styles.profileButton}
+  onPress={() => navigation.navigate("Profile")}
+>
+  <Text style={styles.profileButtonText}>Profile</Text>
+</TouchableOpacity>
     </SafeAreaView>
+    
   );
 }
 
@@ -54,4 +62,17 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "bold",
   },
+  profileButton: {
+  marginTop: 16,
+  borderColor: "#176B43",
+  borderWidth: 1,
+  borderRadius: 12,
+  padding: 15,
+  alignItems: "center",
+},
+
+profileButtonText: {
+  color: "#176B43",
+  fontWeight: "bold",
+},
 });
