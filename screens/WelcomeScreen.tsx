@@ -6,8 +6,8 @@ import {
   View,
 } from "react-native";
 
-export default function HomeScreen({ navigation }: any) {
-  return (
+export default function WelcomeScreen({ navigation }: any) {
+    return (
     <SafeAreaView style={styles.page}>
       <View style={styles.hero}>
         <View style={styles.circleLeft} />
@@ -47,6 +47,12 @@ export default function HomeScreen({ navigation }: any) {
   onPress={() => navigation.navigate("Login")}
 >
   <Text style={styles.signInButtonText}>Sign In</Text>
+</TouchableOpacity>
+<TouchableOpacity
+  style={styles.guestButton}
+  onPress={() => navigation.replace("Home")}
+>
+  <Text style={styles.guestButtonText}>Continue as guest</Text>
 </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -189,4 +195,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+  guestButton: {
+  minHeight: 48,
+  borderRadius: 12,
+  justifyContent: "center",
+  alignItems: "center",
+  borderWidth: 1,
+  borderColor: "#25884D",
+  backgroundColor: "#F4FAF6",
+  marginTop: 12,
+},
+
+guestButtonText: {
+  color: "#25884D",
+  fontSize: 14,
+  fontWeight: "700",
+},
 });
