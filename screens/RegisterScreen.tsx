@@ -163,6 +163,14 @@ export default function RegisterScreen({ navigation }: any) {
             {loading ? "Creating account..." : "Continue"}
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+  style={styles.loginLinkButton}
+  onPress={() => navigation.replace("Login")}
+>
+  <Text style={styles.loginLinkText}>
+    Already have an account? <Text style={styles.loginLinkGreen}>Log in</Text>
+  </Text>
+</TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -224,4 +232,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
+  loginLinkButton: {
+  alignItems: "center",
+  marginTop: 22,
+},
+
+loginLinkText: {
+  color: "#68766F",
+  fontSize: 14,
+},
+
+loginLinkGreen: {
+  color: "#176B43",
+  fontWeight: "bold",
+},
 });

@@ -12,9 +12,12 @@ import {
 } from "react-native";
 
 export default function ProfileScreen({ navigation }: any) {
-  const [name, setName] = useState("LabelLens User");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState("Guest");
+  const [email, setEmail] = useState(
+    "Log in or create an account to save your preferences."
+  );
   const [allergies, setAllergies] = useState("No allergies saved");
+  const [isGuest, setIsGuest] = useState(true);
 
   useEffect(() => {
     loadProfile();
@@ -26,9 +29,14 @@ export default function ProfileScreen({ navigation }: any) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      navigation.replace("Welcome");
+      setName("Guest");
+      setEmail("Log in or create an account to save your preferences.");
+      setAllergies("Sign in to save allergies");
+      setIsGuest(true);
       return;
     }
+
+    setIsGuest(false);
 
     const fullName =
       user.user_metadata?.full_name ||
@@ -62,8 +70,25 @@ export default function ProfileScreen({ navigation }: any) {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut({
+      scope: "local",
+    });
+
+    if (error) {
+      showMessage("Could not sign out", error.message);
+      return;
+    }
+
     navigation.replace("Welcome");
+  }
+
+  function openPreferences() {
+    if (isGuest) {
+      navigation.replace("Welcome");
+      return;
+    }
+
+    navigation.navigate("Preferences");
   }
 
   return (
@@ -72,22 +97,45 @@ export default function ProfileScreen({ navigation }: any) {
         <Text style={styles.header}>Profile & Settings</Text>
 
         <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {name.charAt(0).toUpperCase()}
-            </Text>
+          <View style={styles.profileRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {name.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+
+            <View style={styles.profileDetails}>
+              <Text style={styles.name}>{name}</Text>
+              <Text style={styles.email}>{email}</Text>
+            </View>
           </View>
 
-          <View style={styles.profileDetails}>
-            <Text style={styles.name}>{name}</Text>
-            <Text style={styles.email}>{email}</Text>
-          </View>
+          {isGuest ? (
+            <TouchableOpacity
+              style={styles.guestAccountButton}
+              onPress={() => navigation.replace("Register")}            >
+              <Text style={styles.guestAccountButtonText}>
+                Log in / Create account
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.accountSettingsButton}
+              onPress={() => navigation.navigate("ProfileSettings")}
+            >
+              <Text style={styles.accountSettingsText}>
+                Profile settings
+              </Text>
+              <Text style={styles.accountSettingsArrow}>›</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <Text style={styles.sectionTitle}>ALLERGY PROFILE</Text>
+
         <TouchableOpacity
           style={styles.singleRow}
-          onPress={() => navigation.navigate("Preferences")}
+          onPress={openPreferences}
         >
           <Text style={styles.rowIcon}>🛡️</Text>
 
@@ -100,11 +148,15 @@ export default function ProfileScreen({ navigation }: any) {
         </TouchableOpacity>
 
         <Text style={styles.sectionTitle}>PREFERENCES</Text>
+
         <View style={styles.group}>
           <TouchableOpacity
             style={styles.row}
             onPress={() =>
-              showMessage("Language", "Language settings will be added soon.")
+              showMessage(
+                "Language",
+                "Language settings will be added soon."
+              )
             }
           >
             <Text style={styles.rowIcon}>🌐</Text>
@@ -132,11 +184,15 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
 
         <Text style={styles.sectionTitle}>SUPPORT</Text>
+
         <View style={styles.group}>
           <TouchableOpacity
             style={styles.row}
             onPress={() =>
-              showMessage("Help Center", "Help Center will be added soon.")
+              showMessage(
+                "Help Center",
+                "Help Center will be added soon."
+              )
             }
           >
             <Text style={styles.rowIcon}>❓</Text>
@@ -149,7 +205,10 @@ export default function ProfileScreen({ navigation }: any) {
           <TouchableOpacity
             style={styles.row}
             onPress={() =>
-              showMessage("Contact Us", "Contact support at support@labellens.com")
+              showMessage(
+                "Contact Us",
+                "Contact support at support@labellens.com"
+              )
             }
           >
             <Text style={styles.rowIcon}>✉️</Text>
@@ -162,7 +221,10 @@ export default function ProfileScreen({ navigation }: any) {
           <TouchableOpacity
             style={styles.row}
             onPress={() =>
-              showMessage("About LabelLens", "LabelLens version 1.0.0")
+              showMessage(
+                "About LabelLens",
+                "LabelLens version 1.0.0"
+              )
             }
           >
             <Text style={styles.rowIcon}>ℹ️</Text>
@@ -173,6 +235,7 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
 
         <Text style={styles.sectionTitle}>ACCOUNT</Text>
+
         <View style={styles.group}>
           <TouchableOpacity
             style={styles.row}
@@ -183,12 +246,19 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.arrow}>›</Text>
           </TouchableOpacity>
 
-          <View style={styles.divider} />
+          {!isGuest && (
+            <>
+              <View style={styles.divider} />
 
-          <TouchableOpacity style={styles.row} onPress={signOut}>
-            <Text style={styles.rowIcon}>🚪</Text>
-            <Text style={styles.signOutText}>Sign Out</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.row}
+                onPress={signOut}
+              >
+                <Text style={styles.rowIcon}>🚪</Text>
+                <Text style={styles.signOutText}>Sign Out</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -203,7 +273,7 @@ export default function ProfileScreen({ navigation }: any) {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => navigation.navigate("Preferences")}
+          onPress={openPreferences}
         >
           <Text style={styles.navIcon}>▤</Text>
           <Text style={styles.navText}>Avoid</Text>
@@ -223,26 +293,33 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F7F9F7",
   },
+
   content: {
     padding: 18,
     paddingBottom: 18,
   },
+
   header: {
     color: "#183F2B",
     fontSize: 19,
     fontWeight: "700",
     marginBottom: 20,
   },
+
   profileCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     padding: 15,
-    flexDirection: "row",
-    alignItems: "center",
     marginBottom: 17,
     borderWidth: 1,
     borderColor: "#EDF0ED",
   },
+
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
   avatar: {
     width: 48,
     height: 48,
@@ -252,24 +329,63 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 13,
   },
+
   avatarText: {
     color: "#197A42",
     fontSize: 19,
     fontWeight: "600",
   },
+
   profileDetails: {
     flex: 1,
   },
+
   name: {
     color: "#183F2B",
     fontSize: 15,
     fontWeight: "700",
   },
+
   email: {
     color: "#62756A",
     fontSize: 12,
     marginTop: 4,
+    flexShrink: 1,
   },
+
+  accountSettingsButton: {
+    borderTopWidth: 1,
+    borderTopColor: "#E5ECE8",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 14,
+    paddingTop: 14,
+  },
+
+  accountSettingsText: {
+    color: "#176B43",
+    fontWeight: "700",
+  },
+
+  accountSettingsArrow: {
+    color: "#176B43",
+    fontSize: 22,
+  },
+
+  guestAccountButton: {
+    backgroundColor: "#176B43",
+    borderRadius: 10,
+    alignItems: "center",
+    paddingVertical: 11,
+    marginTop: 14,
+  },
+
+  guestAccountButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "bold",
+  },
+
   sectionTitle: {
     color: "#91A0BF",
     fontSize: 10,
@@ -279,6 +395,7 @@ const styles = StyleSheet.create({
     marginBottom: 7,
     marginLeft: 3,
   },
+
   group: {
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
@@ -286,6 +403,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#EDF0ED",
   },
+
   singleRow: {
     minHeight: 65,
     flexDirection: "row",
@@ -296,50 +414,60 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#EDF0ED",
   },
+
   row: {
     minHeight: 53,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
   },
+
   rowIcon: {
     fontSize: 16,
     width: 28,
   },
+
   rowText: {
     flex: 1,
   },
+
   rowTitle: {
     flex: 1,
     color: "#193F2C",
     fontSize: 13,
     fontWeight: "500",
   },
+
   rowSubtitle: {
     color: "#63776B",
     fontSize: 11,
     marginTop: 3,
   },
+
   rowValue: {
     color: "#91A0BF",
     fontSize: 12,
     marginRight: 9,
   },
+
   arrow: {
     color: "#AEB9C6",
     fontSize: 24,
     lineHeight: 24,
   },
+
   divider: {
     height: 1,
     backgroundColor: "#EEF1EF",
     marginLeft: 42,
   },
+
   signOutText: {
     color: "#D45050",
     fontSize: 13,
     fontWeight: "500",
   },
+
   bottomNav: {
     minHeight: 70,
     backgroundColor: "#FFFFFF",
@@ -349,23 +477,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
     alignItems: "center",
   },
+
   navItem: {
     minWidth: 72,
     alignItems: "center",
   },
+
   navIcon: {
     color: "#9BA9A1",
     fontSize: 18,
   },
+
   navText: {
     color: "#9BA9A1",
     fontSize: 10,
     marginTop: 3,
   },
+
   activeNavIcon: {
     color: "#258D4D",
     fontSize: 20,
   },
+
   activeNavText: {
     color: "#258D4D",
     fontSize: 10,

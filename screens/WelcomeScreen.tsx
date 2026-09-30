@@ -1,3 +1,4 @@
+import { supabase } from "../lib/supabase";
 import {
   SafeAreaView,
   StyleSheet,
@@ -7,6 +8,17 @@ import {
 } from "react-native";
 
 export default function WelcomeScreen({ navigation }: any) {
+  async function continueAsGuest() {
+  const { error } = await supabase.auth.signOut({
+    scope: "local",
+  });
+
+  if (error) {
+    return;
+  }
+
+  navigation.replace("Home");
+}
     return (
     <SafeAreaView style={styles.page}>
       <View style={styles.hero}>
@@ -50,7 +62,7 @@ export default function WelcomeScreen({ navigation }: any) {
 </TouchableOpacity>
 <TouchableOpacity
   style={styles.guestButton}
-  onPress={() => navigation.replace("Home")}
+  onPress={continueAsGuest}
 >
   <Text style={styles.guestButtonText}>Continue as guest</Text>
 </TouchableOpacity>

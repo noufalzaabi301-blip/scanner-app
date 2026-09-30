@@ -9,6 +9,7 @@ import HomeScreen from "./screens/HomeScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 import ProfileScreen from "./screens/ProfileScreen";
+import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -20,7 +21,7 @@ export type RootStackParamList = {
   Home: undefined;
   ResetPassword: undefined;
   Profile: undefined;
-};
+ProfileSettings: undefined;};
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const linking = {
@@ -53,7 +54,11 @@ export default function App() {
   component={ProfileScreen}
   options={{ headerShown: false }}
 />
-
+<Stack.Screen
+  name="ProfileSettings"
+  component={ProfileSettingsScreen}
+  options={{ title: "Profile settings" }}
+/>
         <Stack.Screen
   name="Login"
   component={LoginScreen}
