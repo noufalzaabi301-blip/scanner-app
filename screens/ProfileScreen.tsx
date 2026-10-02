@@ -18,6 +18,7 @@ export default function ProfileScreen({ navigation }: any) {
   );
   const [allergies, setAllergies] = useState("No allergies saved");
   const [isGuest, setIsGuest] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -30,7 +31,9 @@ export default function ProfileScreen({ navigation }: any) {
 
     if (!user) {
       setName("Guest");
-      setEmail("Log in or create an account to save your preferences.");
+      setEmail(
+        "Log in or create an account to save your preferences."
+      );
       setAllergies("Sign in to save allergies");
       setIsGuest(true);
       return;
@@ -69,17 +72,88 @@ export default function ProfileScreen({ navigation }: any) {
     }
   }
 
-  async function signOut() {
-    const { error } = await supabase.auth.signOut({
-      scope: "local",
-    });
+  function confirmSignOut() {
+    const signOutNow = async () => {
+      const { error } = await supabase.auth.signOut({
+        scope: "local",
+      });
 
-    if (error) {
-      showMessage("Could not sign out", error.message);
+      if (error) {
+        showMessage("Could not sign out", error.message);
+        return;
+      }
+
+      navigation.replace("Welcome");
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm("Sign out of this device?")) {
+        signOutNow();
+      }
       return;
     }
 
-    navigation.replace("Welcome");
+    Alert.alert(
+      "Sign out?",
+      "You will be signed out of this device.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign out",
+          style: "destructive",
+          onPress: signOutNow,
+        },
+      ]
+    );
+  }
+
+  function confirmDeleteAccount() {
+    const deleteAccount = async () => {
+      setDeleting(true);
+
+      try {
+        const { error } = await supabase.functions.invoke(
+          "delete-my-account"
+        );
+
+        if (error) {
+          throw error;
+        }
+
+        await supabase.auth.signOut({
+          scope: "local",
+        });
+
+        navigation.replace("Welcome");
+      } catch (error: any) {
+        showMessage(
+          "Could not delete account",
+          error?.message ||
+            "Your account could not be deleted."
+        );
+      } finally {
+        setDeleting(false);
+      }
+    };
+
+    const warning =
+      "This permanently deletes your LabelLens account, saved preferences, privacy consent, and profile information. This cannot be undone.";
+
+    if (Platform.OS === "web") {
+      if (window.confirm(warning)) {
+        deleteAccount();
+      }
+      return;
+    }
+
+    Alert.alert("Delete account?", warning, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete account",
+        style: "destructive",
+        onPress: deleteAccount,
+      },
+    ]);
   }
 
   function openPreferences() {
@@ -113,7 +187,8 @@ export default function ProfileScreen({ navigation }: any) {
           {isGuest ? (
             <TouchableOpacity
               style={styles.guestAccountButton}
-              onPress={() => navigation.replace("Register")}            >
+              onPress={() => navigation.replace("Register")}
+            >
               <Text style={styles.guestAccountButtonText}>
                 Log in / Create account
               </Text>
@@ -121,7 +196,9 @@ export default function ProfileScreen({ navigation }: any) {
           ) : (
             <TouchableOpacity
               style={styles.accountSettingsButton}
-              onPress={() => navigation.navigate("ProfileSettings")}
+              onPress={() =>
+                navigation.navigate("ProfileSettings")
+              }
             >
               <Text style={styles.accountSettingsText}>
                 Profile settings
@@ -239,7 +316,11 @@ export default function ProfileScreen({ navigation }: any) {
         <View style={styles.group}>
           <TouchableOpacity
             style={styles.row}
-            onPress={() => navigation.navigate("PrivacyNotice")}
+            onPress={() =>
+              navigation.navigate("PrivacyNotice", {
+                readOnly: true,
+              })
+            }
           >
             <Text style={styles.rowIcon}>🔒</Text>
             <Text style={styles.rowTitle}>Privacy</Text>
@@ -252,10 +333,28 @@ export default function ProfileScreen({ navigation }: any) {
 
               <TouchableOpacity
                 style={styles.row}
-                onPress={signOut}
+                onPress={confirmSignOut}
               >
                 <Text style={styles.rowIcon}>🚪</Text>
                 <Text style={styles.signOutText}>Sign Out</Text>
+              </TouchableOpacity>
+
+              <View style={styles.divider} />
+
+              <TouchableOpacity
+                style={[
+                  styles.row,
+                  deleting && styles.disabledRow,
+                ]}
+                onPress={confirmDeleteAccount}
+                disabled={deleting}
+              >
+                <Text style={styles.rowIcon}>🗑️</Text>
+                <Text style={styles.deleteAccountText}>
+                  {deleting
+                    ? "Deleting account..."
+                    : "Delete account"}
+                </Text>
               </TouchableOpacity>
             </>
           )}
@@ -466,6 +565,16 @@ const styles = StyleSheet.create({
     color: "#D45050",
     fontSize: 13,
     fontWeight: "500",
+  },
+
+  deleteAccountText: {
+    color: "#A33838",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  disabledRow: {
+    opacity: 0.55,
   },
 
   bottomNav: {

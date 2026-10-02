@@ -38,13 +38,17 @@ export default function LoginScreen({ navigation }: any) {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
+      const { error } =
+        await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
 
       if (error) {
-        showMessage("Login failed", "The email or password is incorrect.");
+        showMessage(
+          "Login failed",
+          "The email or password is incorrect."
+        );
         return;
       }
 
@@ -53,27 +57,17 @@ export default function LoginScreen({ navigation }: any) {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        showMessage("Login failed", "Could not load your account.");
+        showMessage(
+          "Login failed",
+          "Could not load your account."
+        );
         return;
       }
 
-      const { data: consent, error: consentError } = await supabase
-        .from("user_consents")
-        .select("privacy_version")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (consentError) {
-        showMessage("Could not load privacy consent", consentError.message);
-        return;
-      }
-
-      if (!consent) {
-        navigation.replace("PrivacyNotice");
-        return;
-      }
-
-      const { data: preferences, error: preferencesError } = await supabase
+      const {
+        data: preferences,
+        error: preferencesError,
+      } = await supabase
         .from("user_preferences")
         .select("user_id")
         .eq("user_id", user.id)
@@ -87,7 +81,9 @@ export default function LoginScreen({ navigation }: any) {
         return;
       }
 
-      navigation.replace(preferences ? "Home" : "Preferences");
+      navigation.replace(
+        preferences ? "Home" : "Preferences"
+      );
     } catch {
       showMessage(
         "Connection problem",
@@ -105,9 +101,13 @@ export default function LoginScreen({ navigation }: any) {
     >
       <View style={styles.content}>
         <Text style={styles.title}>Welcome back</Text>
-        <Text style={styles.subtitle}>Sign in to your LabelLens account</Text>
+
+        <Text style={styles.subtitle}>
+          Sign in to your LabelLens account
+        </Text>
 
         <Text style={styles.label}>Email</Text>
+
         <TextInput
           style={styles.input}
           value={email}
@@ -119,6 +119,7 @@ export default function LoginScreen({ navigation }: any) {
         />
 
         <Text style={styles.label}>Password</Text>
+
         <TextInput
           style={styles.input}
           value={password}
@@ -128,13 +129,20 @@ export default function LoginScreen({ navigation }: any) {
         />
 
         <TouchableOpacity
-          onPress={() => navigation.navigate("ForgotPassword")}
+          onPress={() =>
+            navigation.navigate("ForgotPassword")
+          }
         >
-          <Text style={styles.forgot}>Forgot password?</Text>
+          <Text style={styles.forgot}>
+            Forgot password?
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.button, loading && styles.disabledButton]}
+          style={[
+            styles.button,
+            loading && styles.disabledButton,
+          ]}
           onPress={handleLogin}
           disabled={loading}
         >
@@ -143,10 +151,18 @@ export default function LoginScreen({ navigation }: any) {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.navigate("Register")}>
+        <TouchableOpacity
+          onPress={() =>
+            navigation.navigate("PrivacyNotice", {
+              fromSignup: true,
+            })
+          }
+        >
           <Text style={styles.createAccount}>
             Don&apos;t have an account?{" "}
-            <Text style={styles.createAccountLink}>Create Account</Text>
+            <Text style={styles.createAccountLink}>
+              Create Account
+            </Text>
           </Text>
         </TouchableOpacity>
       </View>
@@ -162,27 +178,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 30,
   },
+
   content: {
     width: "100%",
     maxWidth: 320,
   },
+
   title: {
     color: "#163D2A",
     fontSize: 24,
     fontWeight: "700",
   },
+
   subtitle: {
     color: "#63776B",
     fontSize: 13,
     marginTop: 5,
     marginBottom: 21,
   },
+
   label: {
     color: "#264C37",
     fontSize: 13,
     fontWeight: "500",
     marginBottom: 7,
   },
+
   input: {
     minHeight: 46,
     borderWidth: 1,
@@ -194,6 +215,7 @@ const styles = StyleSheet.create({
     color: "#1D3829",
     marginBottom: 15,
   },
+
   forgot: {
     color: "#197640",
     fontSize: 13,
@@ -202,6 +224,7 @@ const styles = StyleSheet.create({
     marginTop: -3,
     marginBottom: 21,
   },
+
   button: {
     minHeight: 48,
     backgroundColor: "#258D4D",
@@ -209,20 +232,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   disabledButton: {
     opacity: 0.6,
   },
+
   buttonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
   },
+
   createAccount: {
     color: "#63776B",
     fontSize: 13,
     textAlign: "center",
     marginTop: 20,
   },
+
   createAccountLink: {
     color: "#197640",
     fontWeight: "700",

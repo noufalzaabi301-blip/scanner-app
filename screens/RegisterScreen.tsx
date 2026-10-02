@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Platform,
@@ -11,13 +11,28 @@ import {
   View,
 } from "react-native";
 
-export default function RegisterScreen({ navigation }: any) {
+export default function RegisterScreen({
+  navigation,
+  route,
+}: any) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] =
+    useState("");
   const [loading, setLoading] = useState(false);
+
+  const privacyAccepted =
+    route?.params?.privacyAccepted === true;
+
+  useEffect(() => {
+    if (!privacyAccepted) {
+      navigation.replace("PrivacyNotice", {
+        fromSignup: true,
+      });
+    }
+  }, [navigation, privacyAccepted]);
 
   function showMessage(title: string, message: string) {
     if (Platform.OS === "web") {
@@ -28,6 +43,13 @@ export default function RegisterScreen({ navigation }: any) {
   }
 
   async function createAccount() {
+    if (!privacyAccepted) {
+      navigation.replace("PrivacyNotice", {
+        fromSignup: true,
+      });
+      return;
+    }
+
     const cleanFirstName = firstName.trim();
     const cleanLastName = lastName.trim();
     const cleanEmail = email.trim().toLowerCase();
@@ -39,7 +61,10 @@ export default function RegisterScreen({ navigation }: any) {
       !password ||
       !confirmPassword
     ) {
-      showMessage("Missing information", "Please complete every field.");
+      showMessage(
+        "Missing information",
+        "Please complete every field."
+      );
       return;
     }
 
@@ -70,22 +95,31 @@ export default function RegisterScreen({ navigation }: any) {
             first_name: cleanFirstName,
             last_name: cleanLastName,
             full_name: `${cleanFirstName} ${cleanLastName}`,
+            privacy_accepted: true,
+            privacy_version: "1.0",
+            privacy_accepted_at: new Date().toISOString(),
           },
         },
       });
 
       if (error) {
-        showMessage("Account creation failed", error.message);
+        showMessage(
+          "Account creation failed",
+          error.message
+        );
         return;
       }
 
       if (data.session) {
-        navigation.replace("PrivacyNotice");
+        // User is signed in immediately.
+        navigation.replace("Preferences");
       } else {
+        // Email confirmation is enabled.
         showMessage(
           "Verify your email",
           "We sent a verification link to your email address."
         );
+
         navigation.replace("Login");
       }
     } catch {
@@ -105,9 +139,13 @@ export default function RegisterScreen({ navigation }: any) {
     >
       <View style={styles.content}>
         <Text style={styles.title}>Get started</Text>
-        <Text style={styles.subtitle}>Create your free LabelLens account</Text>
+
+        <Text style={styles.subtitle}>
+          Create your free LabelLens account
+        </Text>
 
         <Text style={styles.label}>First Name</Text>
+
         <TextInput
           style={styles.input}
           value={firstName}
@@ -117,6 +155,7 @@ export default function RegisterScreen({ navigation }: any) {
         />
 
         <Text style={styles.label}>Last Name</Text>
+
         <TextInput
           style={styles.input}
           value={lastName}
@@ -126,6 +165,7 @@ export default function RegisterScreen({ navigation }: any) {
         />
 
         <Text style={styles.label}>Email</Text>
+
         <TextInput
           style={styles.input}
           value={email}
@@ -137,6 +177,7 @@ export default function RegisterScreen({ navigation }: any) {
         />
 
         <Text style={styles.label}>Password</Text>
+
         <TextInput
           style={styles.input}
           value={password}
@@ -146,6 +187,7 @@ export default function RegisterScreen({ navigation }: any) {
         />
 
         <Text style={styles.label}>Confirm Password</Text>
+
         <TextInput
           style={styles.input}
           value={confirmPassword}
@@ -155,7 +197,10 @@ export default function RegisterScreen({ navigation }: any) {
         />
 
         <TouchableOpacity
-          style={[styles.button, loading && styles.disabledButton]}
+          style={[
+            styles.button,
+            loading && styles.disabledButton,
+          ]}
           onPress={createAccount}
           disabled={loading}
         >
@@ -163,14 +208,18 @@ export default function RegisterScreen({ navigation }: any) {
             {loading ? "Creating account..." : "Continue"}
           </Text>
         </TouchableOpacity>
+
         <TouchableOpacity
-  style={styles.loginLinkButton}
-  onPress={() => navigation.replace("Login")}
->
-  <Text style={styles.loginLinkText}>
-    Already have an account? <Text style={styles.loginLinkGreen}>Log in</Text>
-  </Text>
-</TouchableOpacity>
+          style={styles.loginLinkButton}
+          onPress={() => navigation.replace("Login")}
+        >
+          <Text style={styles.loginLinkText}>
+            Already have an account?{" "}
+            <Text style={styles.loginLinkGreen}>
+              Log in
+            </Text>
+          </Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -184,27 +233,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 30,
   },
+
   content: {
     width: "100%",
     maxWidth: 320,
   },
+
   title: {
     color: "#163D2A",
     fontSize: 24,
     fontWeight: "700",
   },
+
   subtitle: {
     color: "#63776B",
     fontSize: 13,
     marginTop: 5,
     marginBottom: 21,
   },
+
   label: {
     color: "#264C37",
     fontSize: 13,
     fontWeight: "500",
     marginBottom: 7,
   },
+
   input: {
     minHeight: 46,
     borderWidth: 1,
@@ -216,6 +270,7 @@ const styles = StyleSheet.create({
     color: "#1D3829",
     marginBottom: 15,
   },
+
   button: {
     minHeight: 48,
     backgroundColor: "#258D4D",
@@ -224,26 +279,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 4,
   },
+
   disabledButton: {
     opacity: 0.6,
   },
+
   buttonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
   },
+
   loginLinkButton: {
-  alignItems: "center",
-  marginTop: 22,
-},
+    alignItems: "center",
+    marginTop: 22,
+  },
 
-loginLinkText: {
-  color: "#68766F",
-  fontSize: 14,
-},
+  loginLinkText: {
+    color: "#68766F",
+    fontSize: 14,
+  },
 
-loginLinkGreen: {
-  color: "#176B43",
-  fontWeight: "bold",
-},
+  loginLinkGreen: {
+    color: "#176B43",
+    fontWeight: "bold",
+  },
 });

@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import {
+  ActivityIndicator,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -8,18 +11,62 @@ import {
 } from "react-native";
 
 export default function WelcomeScreen({ navigation }: any) {
-  async function continueAsGuest() {
-  const { error } = await supabase.auth.signOut({
-    scope: "local",
-  });
+  const [checkingStart, setCheckingStart] = useState(true);
 
-  if (error) {
-    return;
+  useEffect(() => {
+    async function chooseStartScreen() {
+      const hasOpenedBefore = await AsyncStorage.getItem(
+        "labellens_has_opened_before"
+      );
+
+      // First installation: show the Welcome page.
+      if (!hasOpenedBefore) {
+        await AsyncStorage.setItem(
+          "labellens_has_opened_before",
+          "true"
+        );
+
+        setCheckingStart(false);
+        return;
+      }
+
+      // Later launches: open Home only when this device is signed in.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session) {
+        navigation.replace("Home");
+        return;
+      }
+
+      setCheckingStart(false);
+    }
+
+    chooseStartScreen();
+  }, [navigation]);
+
+  async function continueAsGuest() {
+    const { error } = await supabase.auth.signOut({
+      scope: "local",
+    });
+
+    if (error) {
+      return;
+    }
+
+    navigation.replace("Home");
   }
 
-  navigation.replace("Home");
-}
+  if (checkingStart) {
     return (
+      <SafeAreaView style={styles.loadingPage}>
+        <ActivityIndicator size="large" color="#20864D" />
+      </SafeAreaView>
+    );
+  }
+
+  return (
     <SafeAreaView style={styles.page}>
       <View style={styles.hero}>
         <View style={styles.circleLeft} />
@@ -31,11 +78,13 @@ export default function WelcomeScreen({ navigation }: any) {
             <View style={styles.paperLine} />
             <View style={styles.paperLineShort} />
           </View>
+
           <View style={styles.searchCircle} />
           <View style={styles.searchHandle} />
         </View>
 
         <Text style={styles.title}>LabelLens</Text>
+
         <Text style={styles.subtitle}>
           Understand what’s inside before you eat
         </Text>
@@ -49,23 +98,30 @@ export default function WelcomeScreen({ navigation }: any) {
 
         <TouchableOpacity
   style={styles.createButton}
-  onPress={() => navigation.navigate("Register")}
+  onPress={() =>
+    navigation.navigate("PrivacyNotice", {
+      fromSignup: true,
+    })
+  }
 >
   <Text style={styles.createButtonText}>Create Account</Text>
 </TouchableOpacity>
 
-<TouchableOpacity
-  style={styles.signInButton}
-  onPress={() => navigation.navigate("Login")}
->
-  <Text style={styles.signInButtonText}>Sign In</Text>
-</TouchableOpacity>
-<TouchableOpacity
-  style={styles.guestButton}
-  onPress={continueAsGuest}
->
-  <Text style={styles.guestButtonText}>Continue as guest</Text>
-</TouchableOpacity>
+        <TouchableOpacity
+          style={styles.signInButton}
+          onPress={() => navigation.navigate("Login")}
+        >
+          <Text style={styles.signInButtonText}>Sign In</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.guestButton}
+          onPress={continueAsGuest}
+        >
+          <Text style={styles.guestButtonText}>
+            Continue as guest
+          </Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -76,6 +132,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
+
+  loadingPage: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   hero: {
     height: "46%",
     backgroundColor: "#C9F0D9",
@@ -83,6 +147,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     overflow: "hidden",
   },
+
   circleLeft: {
     position: "absolute",
     width: 125,
@@ -92,6 +157,7 @@ const styles = StyleSheet.create({
     left: -28,
     bottom: 88,
   },
+
   circleRight: {
     position: "absolute",
     width: 175,
@@ -101,6 +167,7 @@ const styles = StyleSheet.create({
     right: -35,
     top: -30,
   },
+
   logo: {
     width: 64,
     height: 64,
@@ -110,6 +177,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 14,
   },
+
   paper: {
     width: 19,
     height: 24,
@@ -121,6 +189,7 @@ const styles = StyleSheet.create({
     top: 18,
     paddingTop: 4,
   },
+
   paperLine: {
     height: 1.5,
     width: 10,
@@ -128,12 +197,14 @@ const styles = StyleSheet.create({
     marginLeft: 3,
     marginBottom: 3,
   },
+
   paperLineShort: {
     height: 1.5,
     width: 7,
     backgroundColor: "#D7F4E2",
     marginLeft: 3,
   },
+
   searchCircle: {
     width: 14,
     height: 14,
@@ -144,6 +215,7 @@ const styles = StyleSheet.create({
     right: 16,
     bottom: 17,
   },
+
   searchHandle: {
     width: 8,
     height: 2,
@@ -153,22 +225,26 @@ const styles = StyleSheet.create({
     bottom: 15,
     transform: [{ rotate: "45deg" }],
   },
+
   title: {
     fontSize: 29,
     color: "#173E2A",
     fontFamily: "Georgia",
     fontWeight: "500",
   },
+
   subtitle: {
     marginTop: 4,
     fontSize: 12,
     color: "#275541",
   },
+
   content: {
     flex: 1,
     paddingHorizontal: 28,
     paddingTop: 28,
   },
+
   description: {
     color: "#536A60",
     fontSize: 15,
@@ -176,6 +252,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 20,
   },
+
   createButton: {
     backgroundColor: "#25884D",
     minHeight: 48,
@@ -189,11 +266,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
   },
+
   createButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
   },
+
   signInButton: {
     minHeight: 48,
     borderRadius: 12,
@@ -202,25 +281,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D9E0DB",
   },
+
   signInButtonText: {
     color: "#17452F",
     fontSize: 14,
     fontWeight: "600",
   },
-  guestButton: {
-  minHeight: 48,
-  borderRadius: 12,
-  justifyContent: "center",
-  alignItems: "center",
-  borderWidth: 1,
-  borderColor: "#25884D",
-  backgroundColor: "#F4FAF6",
-  marginTop: 12,
-},
 
-guestButtonText: {
-  color: "#25884D",
-  fontSize: 14,
-  fontWeight: "700",
-},
+  guestButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#25884D",
+    backgroundColor: "#F4FAF6",
+    marginTop: 12,
+  },
+
+  guestButtonText: {
+    color: "#25884D",
+    fontSize: 14,
+    fontWeight: "700",
+  },
 });

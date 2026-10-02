@@ -14,14 +14,20 @@ import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
 export type RootStackParamList = {
   Welcome: undefined;
   Login: undefined;
-  Register: undefined;
+  Register: { privacyAccepted?: boolean } | undefined;
   ForgotPassword: undefined;
-  PrivacyNotice: undefined;
+  ResetPassword: undefined;
+  PrivacyNotice:
+    | {
+        readOnly?: boolean;
+        fromSignup?: boolean;
+      }
+    | undefined;
   Preferences: undefined;
   Home: undefined;
-  ResetPassword: undefined;
   Profile: undefined;
-ProfileSettings: undefined;};
+  ProfileSettings: undefined;
+};
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const linking = {
@@ -82,13 +88,13 @@ export default function App() {
   component={ResetPasswordScreen}
   options={{ title: "Reset password" }}
 />
-        <Stack.Screen
+<Stack.Screen
   name="PrivacyNotice"
   component={PrivacyNoticeScreen}
-  options={{
+  options={({ route }) => ({
     title: "Privacy Notice",
-    headerBackVisible: false,
-  }}
+    headerBackVisible: route.params?.readOnly === true,
+  })}
 />
 
 <Stack.Screen
