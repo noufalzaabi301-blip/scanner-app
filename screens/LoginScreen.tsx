@@ -14,6 +14,7 @@ import {
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   function showMessage(title: string, message: string) {
@@ -80,10 +81,7 @@ export default function LoginScreen({ navigation }: any) {
         .maybeSingle();
 
       if (preferencesError) {
-        showMessage(
-          "Could not load preferences",
-          preferencesError.message
-        );
+        showMessage("Could not load preferences", preferencesError.message);
         return;
       }
 
@@ -108,24 +106,41 @@ export default function LoginScreen({ navigation }: any) {
         <Text style={styles.subtitle}>Sign in to your LabelLens account</Text>
 
         <Text style={styles.label}>Email</Text>
+
         <TextInput
           style={styles.input}
           value={email}
           onChangeText={setEmail}
           placeholder="you@example.com"
+          placeholderTextColor="#AAB8AE"
           keyboardType="email-address"
           autoCapitalize="none"
           autoCorrect={false}
         />
 
         <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          placeholder="••••••••"
-          secureTextEntry
-        />
+
+        <View style={styles.passwordContainer}>
+          <TextInput
+            style={styles.passwordInput}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="••••••••"
+            placeholderTextColor="#AAB8AE"
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TouchableOpacity
+            style={styles.showPasswordButton}
+            onPress={() => setShowPassword(!showPassword)}
+          >
+            <Text style={styles.showPasswordText}>
+              {showPassword ? "Hide" : "Show"}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           onPress={() => navigation.navigate("ForgotPassword")}
@@ -193,6 +208,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#1D3829",
     marginBottom: 15,
+  },
+  passwordContainer: {
+    position: "relative",
+    marginBottom: 15,
+  },
+  passwordInput: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: "#DCE5DE",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingRight: 65,
+    fontSize: 14,
+    color: "#1D3829",
+  },
+  showPasswordButton: {
+    position: "absolute",
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+  },
+  showPasswordText: {
+    color: "#197640",
+    fontSize: 13,
+    fontWeight: "600",
   },
   forgot: {
     color: "#197640",
