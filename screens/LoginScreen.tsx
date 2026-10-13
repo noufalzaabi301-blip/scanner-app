@@ -205,13 +205,9 @@ export default function LoginScreen({ navigation }: any) {
           </Text>
         </TouchableOpacity>
 
-        {/* Opens the privacy notice before account creation. */}
+        {/* Opens the account-creation screen. */}
         <TouchableOpacity
-          onPress={() =>
-            navigation.navigate("PrivacyNotice", {
-              fromSignup: true,
-            })
-          }
+         onPress={() => navigation.navigate("Register")}
         >
           <Text style={styles.createAccount}>
             {"Don't have an account? "}

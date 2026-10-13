@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   Alert,
   Platform,
@@ -11,13 +12,21 @@ import {
 
 const PRIVACY_VERSION = "1.0";
 
+const PRIVACY_NOTICE_KEY =
+  "labellens_privacy_notice_accepted_v1";
+
 export default function PrivacyNoticeScreen({
   navigation,
   route,
 }: any) {
-  const fromSignup = route?.params?.fromSignup === true;
-  const readOnly = route?.params?.readOnly === true;
-  const showConsentControls = fromSignup && !readOnly;
+  const fromAppStart =
+    route?.params?.fromAppStart === true;
+
+  const readOnly =
+    route?.params?.readOnly === true;
+
+  const showConsentControls =
+    fromAppStart && !readOnly;
 
   const [accepted, setAccepted] = useState(false);
 
@@ -29,7 +38,7 @@ export default function PrivacyNoticeScreen({
     }
   }
 
-  function acceptPrivacyNotice() {
+  async function acceptPrivacyNotice() {
     if (!accepted) {
       showMessage(
         "Consent required",
@@ -38,13 +47,19 @@ export default function PrivacyNoticeScreen({
       return;
     }
 
-    navigation.replace("Register", {
-      privacyAccepted: true,
-    });
-  }
+    try {
+      await AsyncStorage.setItem(
+        PRIVACY_NOTICE_KEY,
+        "true"
+      );
 
-  function declinePrivacyNotice() {
-    navigation.replace("Welcome");
+      navigation.replace("Welcome");
+    } catch {
+      showMessage(
+        "Could not save your choice",
+        "Please try again."
+      );
+    }
   }
 
   return (
@@ -147,15 +162,6 @@ export default function PrivacyNoticeScreen({
             >
               <Text style={styles.acceptButtonText}>
                 Accept and continue
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.declineButton}
-              onPress={declinePrivacyNotice}
-            >
-              <Text style={styles.declineText}>
-                Decline and return
               </Text>
             </TouchableOpacity>
           </>
@@ -261,16 +267,5 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "bold",
-  },
-
-  declineButton: {
-    padding: 14,
-    alignItems: "center",
-    marginTop: 8,
-  },
-
-  declineText: {
-    color: "#A33838",
-    fontWeight: "600",
   },
 });
