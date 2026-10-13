@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -10,15 +9,17 @@ import {
   View,
 } from "react-native";
 
-import { supabase } from "../lib/supabase";
-
 const PRIVACY_VERSION = "1.0";
 
 export default function PrivacyNoticeScreen({
   navigation,
+  route,
 }: any) {
+  const fromSignup = route?.params?.fromSignup === true;
+  const readOnly = route?.params?.readOnly === true;
+  const showConsentControls = fromSignup && !readOnly;
+
   const [accepted, setAccepted] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   function showMessage(title: string, message: string) {
     if (Platform.OS === "web") {
@@ -28,68 +29,22 @@ export default function PrivacyNoticeScreen({
     }
   }
 
-  async function acceptPrivacyNotice() {
+  function acceptPrivacyNotice() {
     if (!accepted) {
       showMessage(
         "Consent required",
-        "Please confirm that you have read and accepted the privacy notice."
+        "Please confirm that you have read and accepted the Privacy Notice."
       );
       return;
     }
 
-    setLoading(true);
-
-    try {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        showMessage(
-          "Session expired",
-          "Please log in again."
-        );
-
-        navigation.replace("Login");
-        return;
-      }
-
-      const { error } = await supabase
-        .from("user_consents")
-        .upsert(
-          {
-            user_id: user.id,
-            privacy_version: PRIVACY_VERSION,
-            accepted_at: new Date().toISOString(),
-          },
-          {
-            onConflict: "user_id",
-          }
-        );
-
-      if (error) {
-        showMessage(
-          "Could not save consent",
-          error.message
-        );
-        return;
-      }
-
-      navigation.replace("Preferences");
-    } catch {
-      showMessage(
-        "Connection problem",
-        "Could not save your privacy choice."
-      );
-    } finally {
-      setLoading(false);
-    }
+    navigation.replace("Register", {
+      privacyAccepted: true,
+    });
   }
 
-  async function declinePrivacyNotice() {
-    await supabase.auth.signOut();
-    navigation.replace("Login");
+  function declinePrivacyNotice() {
+    navigation.replace("Welcome");
   }
 
   return (
@@ -102,106 +57,109 @@ export default function PrivacyNoticeScreen({
         </Text>
 
         <Text style={styles.heading}>
-          Information we collect
+          Information We Collect
         </Text>
 
         <Text style={styles.paragraph}>
-          LabelLens collects your account email, halal-food
-          preference, selected food allergies, and your scan
-          history when that feature is enabled.
+          LabelLens may collect your first and last name, account
+          email address, dietary preferences, including halal-food
+          preferences, selected food allergies, and scan history
+          when the scan-history feature is enabled.
         </Text>
 
         <Text style={styles.heading}>
-          Why we collect it
+          Why We Collect Information
         </Text>
 
         <Text style={styles.paragraph}>
-          We use your preferences to highlight products that may
-          be relevant to your dietary needs and to personalize
-          product results.
+          We collect this information to save and apply your
+          preferences, making it easier to review products you have
+          previously scanned without needing to scan them again.
+          Your profile information is used to associate your
+          preferences with your account and to identify your account
+          within the application.
         </Text>
 
         <Text style={styles.heading}>
-          Important allergy warning
+          Important Allergy Warning
         </Text>
 
         <Text style={styles.paragraph}>
-          Product information may be incomplete, outdated, or
-          incorrect. LabelLens does not guarantee that a product
-          is safe. Always read the product label and contact the
-          manufacturer when necessary.
+          Some product information may be incomplete, outdated, or
+          inaccurate. LabelLens does not guarantee that any product
+          is safe for your dietary needs or allergies. Always read
+          and verify the current ingredient list and allergen
+          information on the product’s packaging before consuming or
+          purchasing a product.
         </Text>
 
         <Text style={styles.heading}>
-          How information is stored
+          How Information Is Stored
         </Text>
 
         <Text style={styles.paragraph}>
           Account and preference information is stored using
-          Supabase. Access controls are used so each user can
-          access only their own saved preferences.
+          Supabase. Access controls are used to help ensure that
+          each user can access only their own saved preferences and
+          account-related information.
         </Text>
 
-        <Text style={styles.heading}>Your choices</Text>
+        <Text style={styles.heading}>Your Choices</Text>
 
         <Text style={styles.paragraph}>
-          You can request to view, change, or delete your saved
-          preferences. You can also stop using the service and
-          request deletion of your account.
+          You may request access to, correction of, or deletion of
+          your saved preferences and account information. You may
+          also stop using the service at any time and request
+          deletion of your account.
         </Text>
 
-        <TouchableOpacity
-          style={styles.consentRow}
-          onPress={() => setAccepted((value) => !value)}
-        >
-          <View
-            style={[
-              styles.checkbox,
-              accepted && styles.checkedBox,
-            ]}
-          >
-            {accepted && (
-              <Text style={styles.checkmark}>✓</Text>
-            )}
-          </View>
+        {showConsentControls && (
+          <>
+            <TouchableOpacity
+              style={styles.consentRow}
+              onPress={() =>
+                setAccepted((value) => !value)
+              }
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  accepted && styles.checkedBox,
+                ]}
+              >
+                {accepted && (
+                  <Text style={styles.checkmark}>✓</Text>
+                )}
+              </View>
 
-          <Text style={styles.consentText}>
-            I have read and accept the Privacy Notice.
-          </Text>
-        </TouchableOpacity>
+              <Text style={styles.consentText}>
+                I have read and accept the Privacy Notice.
+              </Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.acceptButton,
-            (!accepted || loading) &&
-              styles.disabledButton,
-          ]}
-          onPress={acceptPrivacyNotice}
-          disabled={!accepted || loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.acceptButtonText}>
-              Accept and continue
-            </Text>
-          )}
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.acceptButton,
+                !accepted && styles.disabledButton,
+              ]}
+              onPress={acceptPrivacyNotice}
+              disabled={!accepted}
+            >
+              <Text style={styles.acceptButtonText}>
+                Accept and continue
+              </Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.declineButton}
-          onPress={declinePrivacyNotice}
-          disabled={loading}
-        >
-          <Text style={styles.declineText}>
-            Decline and log out
-          </Text>
-        </TouchableOpacity>
-
-        <Text style={styles.footer}>
-          This notice is a starter draft and should be reviewed
-          before releasing LabelLens publicly.
-        </Text>
+            <TouchableOpacity
+              style={styles.declineButton}
+              onPress={declinePrivacyNotice}
+            >
+              <Text style={styles.declineText}>
+                Decline and return
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </ScrollView>
   );
@@ -314,13 +272,5 @@ const styles = StyleSheet.create({
   declineText: {
     color: "#A33838",
     fontWeight: "600",
-  },
-
-  footer: {
-    color: "#7A8981",
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: "center",
-    marginTop: 20,
   },
 });
