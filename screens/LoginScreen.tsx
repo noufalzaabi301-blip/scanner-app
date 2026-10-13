@@ -1,10 +1,10 @@
-// Import the Supabase client used for user authentication.
+// Import the Supabase client used for authentication.
 import { supabase } from "../lib/supabase";
 
 // Import React state management.
 import { useState } from "react";
 
-// Import the React Native components used on this screen.
+// Import React Native components.
 import {
   Alert,
   Platform,
@@ -17,19 +17,19 @@ import {
 } from "react-native";
 
 export default function LoginScreen({ navigation }: any) {
-  // Store the email typed by the user.
+  // Stores the email entered by the user.
   const [email, setEmail] = useState("");
 
-  // Store the password typed by the user.
+  // Stores the password entered by the user.
   const [password, setPassword] = useState("");
 
-  // Decide whether the password should be visible.
+  // Controls whether the password is visible.
   const [showPassword, setShowPassword] = useState(false);
 
-  // Show a loading state while login is processing.
+  // Shows a loading state during login.
   const [loading, setLoading] = useState(false);
 
-  // Display messages correctly on web, Android, and iOS.
+  // Displays messages on web, iOS, and Android.
   function showMessage(title: string, message: string) {
     if (Platform.OS === "web") {
       window.alert(`${title}\n\n${message}`);
@@ -38,12 +38,12 @@ export default function LoginScreen({ navigation }: any) {
     }
   }
 
-  // Handle the login process.
+  // Handles the login process.
   async function handleLogin() {
-    // Remove spaces and make the email lowercase.
+    // Clean the email before sending it to Supabase.
     const cleanEmail = email.trim().toLowerCase();
 
-    // Check that both fields contain information.
+    // Make sure both fields contain information.
     if (!cleanEmail || !password) {
       showMessage(
         "Missing information",
@@ -52,17 +52,18 @@ export default function LoginScreen({ navigation }: any) {
       return;
     }
 
-    // Disable the button while the request is running.
+    // Disable the button while login is processing.
     setLoading(true);
 
     try {
       // Sign in using the user's email and password.
-      const { error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
+      const { error } =
+        await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
 
-      // Show a generic error if the login details are incorrect.
+      // Show an error if the login information is incorrect.
       if (error) {
         showMessage(
           "Login failed",
@@ -85,7 +86,7 @@ export default function LoginScreen({ navigation }: any) {
         return;
       }
 
-      // Check whether the user has completed the preferences page.
+      // Check whether the user has saved preferences.
       const {
         data: preferences,
         error: preferencesError,
@@ -95,7 +96,7 @@ export default function LoginScreen({ navigation }: any) {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      // Show the database error if preferences cannot be loaded.
+      // Display a message if preferences cannot be loaded.
       if (preferencesError) {
         showMessage(
           "Could not load preferences",
@@ -104,19 +105,19 @@ export default function LoginScreen({ navigation }: any) {
         return;
       }
 
-      // Send users with preferences to Home.
-      // Otherwise, send them to the Preferences screen.
+      // Users with preferences go to Home.
+      // New users go to Preferences first.
       navigation.replace(
         preferences ? "Home" : "Preferences"
       );
     } catch {
-      // Handle connection or unexpected errors.
+      // Handles connection and unexpected errors.
       showMessage(
         "Connection problem",
         "Could not connect to the login service."
       );
     } finally {
-      // Re-enable the login button after the request finishes.
+      // Enable the button again after login finishes.
       setLoading(false);
     }
   }
@@ -135,10 +136,10 @@ export default function LoginScreen({ navigation }: any) {
           Sign in to your LabelLens account
         </Text>
 
-        {/* Email field label. */}
+        {/* Email label. */}
         <Text style={styles.label}>Email</Text>
 
-        {/* Email input field. */}
+        {/* Email input. */}
         <TextInput
           style={styles.input}
           value={email}
@@ -150,10 +151,10 @@ export default function LoginScreen({ navigation }: any) {
           autoCorrect={false}
         />
 
-        {/* Password field label. */}
+        {/* Password label. */}
         <Text style={styles.label}>Password</Text>
 
-        {/* Password input and Show/Hide button container. */}
+        {/* Password input and Show/Hide button. */}
         <View style={styles.passwordContainer}>
           <TextInput
             style={styles.passwordInput}
@@ -166,10 +167,12 @@ export default function LoginScreen({ navigation }: any) {
             autoCorrect={false}
           />
 
-          {/* Toggle the password between hidden and visible. */}
+          {/* Shows or hides the password. */}
           <TouchableOpacity
             style={styles.showPasswordButton}
-            onPress={() => setShowPassword(!showPassword)}
+            onPress={() =>
+              setShowPassword(!showPassword)
+            }
           >
             <Text style={styles.showPasswordText}>
               {showPassword ? "Hide" : "Show"}
@@ -177,7 +180,7 @@ export default function LoginScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* Navigate to the password-reset screen. */}
+        {/* Opens the password-reset screen. */}
         <TouchableOpacity
           onPress={() =>
             navigation.navigate("ForgotPassword")
@@ -188,7 +191,7 @@ export default function LoginScreen({ navigation }: any) {
           </Text>
         </TouchableOpacity>
 
-        {/* Submit the login form. */}
+        {/* Submits the login form. */}
         <TouchableOpacity
           style={[
             styles.button,
@@ -202,7 +205,7 @@ export default function LoginScreen({ navigation }: any) {
           </Text>
         </TouchableOpacity>
 
-        {/* Navigate new users to the privacy notice before signup. */}
+        {/* Opens the privacy notice before account creation. */}
         <TouchableOpacity
           onPress={() =>
             navigation.navigate("PrivacyNotice", {
@@ -222,9 +225,8 @@ export default function LoginScreen({ navigation }: any) {
   );
 }
 
-// Styles used by the login screen.
+// Styles used by the Login screen.
 const styles = StyleSheet.create({
-  // Main page layout.
   page: {
     flexGrow: 1,
     backgroundColor: "#FCFDFB",
@@ -233,20 +235,17 @@ const styles = StyleSheet.create({
     paddingVertical: 30,
   },
 
-  // Keeps the form at a readable width.
   content: {
     width: "100%",
     maxWidth: 320,
   },
 
-  // Main page title.
   title: {
     color: "#163D2A",
     fontSize: 24,
     fontWeight: "700",
   },
 
-  // Text below the title.
   subtitle: {
     color: "#63776B",
     fontSize: 13,
@@ -254,7 +253,6 @@ const styles = StyleSheet.create({
     marginBottom: 21,
   },
 
-  // Email and password labels.
   label: {
     color: "#264C37",
     fontSize: 13,
@@ -262,7 +260,6 @@ const styles = StyleSheet.create({
     marginBottom: 7,
   },
 
-  // Normal email input style.
   input: {
     minHeight: 46,
     borderWidth: 1,
@@ -275,13 +272,11 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
 
-  // Holds the password input and Show/Hide button.
   passwordContainer: {
     position: "relative",
     marginBottom: 15,
   },
 
-  // Password input with extra right padding for the button.
   passwordInput: {
     minHeight: 46,
     borderWidth: 1,
@@ -294,7 +289,6 @@ const styles = StyleSheet.create({
     color: "#1D3829",
   },
 
-  // Positions the Show/Hide button inside the password field.
   showPasswordButton: {
     position: "absolute",
     right: 14,
@@ -303,14 +297,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Show/Hide button text.
   showPasswordText: {
     color: "#197640",
     fontSize: 13,
     fontWeight: "600",
   },
 
-  // Forgot-password link.
   forgot: {
     color: "#197640",
     fontSize: 13,
@@ -320,7 +312,6 @@ const styles = StyleSheet.create({
     marginBottom: 21,
   },
 
-  // Login button.
   button: {
     minHeight: 48,
     backgroundColor: "#258D4D",
@@ -329,19 +320,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // Makes the button look disabled while loading.
   disabledButton: {
     opacity: 0.6,
   },
 
-  // Login button text.
   buttonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
   },
 
-  // Create-account text.
   createAccount: {
     color: "#63776B",
     fontSize: 13,
@@ -349,7 +337,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
 
-  // Create-account link text.
   createAccountLink: {
     color: "#197640",
     fontWeight: "700",

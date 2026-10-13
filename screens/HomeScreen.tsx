@@ -1,4 +1,4 @@
-// React hooks used for camera reference and screen state.
+// React hooks used for camera state and camera reference.
 import { useRef, useState } from "react";
 
 // Expo camera components and barcode result type.
@@ -8,7 +8,7 @@ import {
   type BarcodeScanningResult,
 } from "expo-camera";
 
-// React Native components used to build the screen.
+// React Native components used on the Home screen.
 import {
   Image,
   SafeAreaView,
@@ -19,24 +19,25 @@ import {
   View,
 } from "react-native";
 
-// The camera has two possible purposes.
+// The camera can scan a barcode
+// or take an ingredient-label photo.
 type CameraMode = "barcode" | "ingredient";
 
-export default function HomeScreen() {
-  // Controls whether the camera screen is visible.
+export default function HomeScreen({ navigation }: any) {
+  // The camera starts closed when Home opens.
   const [cameraOpen, setCameraOpen] = useState(false);
 
-  // Stores whether the camera scans a barcode or takes a photo.
+  // Stores the current purpose of the camera.
   const [cameraMode, setCameraMode] =
     useState<CameraMode>("barcode");
 
-  // Prevents multiple barcode detections.
+  // Prevents repeated barcode detections.
   const [scanned, setScanned] = useState(false);
 
   // Stores the detected barcode.
   const [barcode, setBarcode] = useState("");
 
-  // Stores the ingredient photo location.
+  // Stores the captured ingredient photo.
   const [ingredientPhotoUri, setIngredientPhotoUri] =
     useState<string | null>(null);
 
@@ -47,33 +48,35 @@ export default function HomeScreen() {
   const [permission, requestPermission] =
     useCameraPermissions();
 
-  // Reference used to take a picture with the camera.
+  // Reference used to take a photo with the camera.
   const cameraRef = useRef<any>(null);
 
-  // Opens the camera in the selected mode.
+  // Opens the camera in barcode or ingredient-photo mode.
   async function openCamera(mode: CameraMode) {
-    // Ask for permission if it has not been granted.
+    // Ask for camera permission if it has not been granted.
     if (!permission?.granted) {
       const result = await requestPermission();
 
-      // Stop if permission is denied.
+      // Stop if the user denies camera access.
       if (!result.granted) {
         return;
       }
     }
 
-    // Reset the previous scan.
+    // Clear the previous barcode result.
     setBarcode("");
+
+    // Allow a new scan.
     setScanned(false);
 
-    // Set the requested camera mode.
+    // Select the camera mode.
     setCameraMode(mode);
 
     // Open the camera screen.
     setCameraOpen(true);
   }
 
-  // Closes the camera and returns to Home.
+  // Closes the camera and returns to the Home screen.
   function closeCamera() {
     setCameraOpen(false);
     setScanned(false);
@@ -84,10 +87,10 @@ export default function HomeScreen() {
   function handleBarcodeScanned(
     result: BarcodeScanningResult
   ) {
-    // Keep only numeric characters.
+    // Remove all non-numeric characters.
     const cleanBarcode = result.data.replace(/\D/g, "");
 
-    // Accept barcode lengths from 8 to 14 digits.
+    // Accept barcodes between 8 and 14 digits.
     if (
       cleanBarcode.length < 8 ||
       cleanBarcode.length > 14
@@ -99,13 +102,13 @@ export default function HomeScreen() {
     setBarcode(cleanBarcode);
     setScanned(true);
 
-    // Close the camera after a valid barcode is detected.
+    // Close the camera after detecting a valid barcode.
     setTimeout(() => {
       setCameraOpen(false);
     }, 500);
   }
 
-  // Switches from barcode scanning to ingredient photography.
+  // Switches from barcode mode to ingredient-photo mode.
   function chooseIngredientPhoto() {
     setCameraMode("ingredient");
     setScanned(false);
@@ -113,7 +116,7 @@ export default function HomeScreen() {
 
   // Takes a photo of the ingredient label.
   async function takeIngredientPhoto() {
-    // Stop if the camera is not ready.
+    // Stop if the camera reference is not ready.
     if (!cameraRef.current) {
       return;
     }
@@ -134,20 +137,24 @@ export default function HomeScreen() {
         setCameraOpen(false);
       }
     } catch {
-      // Keep the camera open if taking the photo fails.
+      // Keep the camera open if the photo fails.
     } finally {
       // Stop showing the loading state.
       setTakingPhoto(false);
     }
   }
 
-  // Opens the camera again to replace the current photo.
+  // Opens the ingredient camera again for a new photo.
   function retakeIngredientPhoto() {
     openCamera("ingredient");
   }
 
-  // This is the full-screen camera view.
-  // It appears only after the user presses a camera button.
+  // Open the profile screen.
+  function openProfile() {
+    navigation.navigate("Profile");
+  }
+
+  // This section is shown only while the camera is open.
   if (cameraOpen) {
     return (
       <SafeAreaView style={styles.cameraPage}>
@@ -203,7 +210,7 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* Temporary barcode confirmation. */}
+            {/* Shows the scanned barcode briefly. */}
             {cameraMode === "barcode" && scanned && (
               <View style={styles.resultCard}>
                 <Text style={styles.resultTitle}>
@@ -216,7 +223,7 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* Takes the ingredient photo. */}
+            {/* Button for taking an ingredient photo. */}
             {cameraMode === "ingredient" && (
               <TouchableOpacity
                 style={styles.takePhotoButton}
@@ -231,7 +238,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
             )}
 
-            {/* Allows ingredient photography without a barcode. */}
+            {/* Option for products without a barcode. */}
             {cameraMode === "barcode" && !scanned && (
               <TouchableOpacity
                 style={styles.ingredientOptionButton}
@@ -259,7 +266,7 @@ export default function HomeScreen() {
   }
 
   // This is the normal Home screen.
-  // The camera is not active here.
+  // The camera is closed here.
   return (
     <SafeAreaView style={styles.page}>
       {/* Application header. */}
@@ -275,6 +282,16 @@ export default function HomeScreen() {
             Food-label screening assistant
           </Text>
         </View>
+
+        {/* Profile shortcut added by the team. */}
+        <TouchableOpacity
+          style={styles.profileButton}
+          onPress={openProfile}
+        >
+          <Text style={styles.profileButtonText}>
+            Profile
+          </Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -282,7 +299,7 @@ export default function HomeScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Home screen heading. */}
+        {/* Main HomeScreen heading. */}
         <Text style={styles.title}>
           Scan a product
         </Text>
@@ -306,7 +323,8 @@ export default function HomeScreen() {
             Position the product barcode inside the frame
           </Text>
 
-          {/* Static placeholder shown before opening the camera. */}
+          {/* Static camera placeholder.
+              The real camera opens only after a button press. */}
           <View style={styles.previewFrame}>
             <View
               style={[
@@ -437,7 +455,7 @@ export default function HomeScreen() {
   );
 }
 
-// All HomeScreen and camera-screen styles.
+// Styles used by the Home screen and camera screen.
 const styles = StyleSheet.create({
   page: {
     flex: 1,
@@ -482,6 +500,19 @@ const styles = StyleSheet.create({
     color: "#68766F",
     fontSize: 12,
     marginTop: 2,
+  },
+
+  profileButton: {
+    backgroundColor: "#E3F1E8",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+
+  profileButtonText: {
+    color: "#176B43",
+    fontSize: 13,
+    fontWeight: "bold",
   },
 
   scroll: {
