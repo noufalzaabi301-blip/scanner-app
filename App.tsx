@@ -1,10 +1,8 @@
-// Navigation container manages navigation between all screens.
+// NavigationContainer manages navigation between all application screens.
 import { NavigationContainer } from "@react-navigation/native";
 
 // Native stack navigation provides mobile-style screen navigation.
-import {
-  createNativeStackNavigator,
-} from "@react-navigation/native-stack";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 // React Native components used by the temporary results screen.
 import {
@@ -21,9 +19,9 @@ import PreferencesScreen from "./screens/PreferencesScreen";
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
+import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 import HomeScreen from "./screens/HomeScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
-import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
 import LabelReviewScreen from "./screens/LabelReviewScreen";
@@ -31,32 +29,27 @@ import LabelReviewScreen from "./screens/LabelReviewScreen";
 // Defines the parameters allowed for every navigation route.
 export type RootStackParamList = {
   Welcome: undefined;
-
   Login: undefined;
-
-  Register:
-    | {
-        privacyAccepted?: boolean;
-      }
-    | undefined;
-
+  Register: { privacyAccepted?: boolean } | undefined;
   ForgotPassword: undefined;
-
   ResetPassword: undefined;
 
   PrivacyNotice:
     | {
-        readOnly?: boolean;
+        // Used when the privacy notice opens during app startup.
+        fromAppStart?: boolean;
+
+        // Used when the privacy notice opens before registration.
         fromSignup?: boolean;
+
+        // Allows the user to return from a read-only privacy page.
+        readOnly?: boolean;
       }
     | undefined;
 
   Preferences: undefined;
-
   Home: undefined;
-
   Profile: undefined;
-
   ProfileSettings: undefined;
 
   // Data passed from HomeScreen to the editable review screen.
@@ -94,15 +87,11 @@ export type RootStackParamList = {
 };
 
 // Creates the typed navigation stack.
-const Stack =
-  createNativeStackNavigator<RootStackParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// Allows password-reset links to open the reset-password screen.
+// Allows password-reset links to open the ResetPassword screen.
 const linking = {
-  prefixes: [
-    "http://localhost:8081",
-    "exp://",
-  ],
+  prefixes: ["http://localhost:8081", "exp://"],
   config: {
     screens: {
       ResetPassword: "reset-password",
@@ -111,16 +100,13 @@ const linking = {
 };
 
 // Temporary results screen.
-// The complete allergy and halal analysis will be added next.
 function AnalysisResultsScreen({ route }: any) {
   // Read the confirmed product information.
   const { product } = route.params;
 
   return (
     <SafeAreaView style={resultsStyles.page}>
-      <ScrollView
-        contentContainerStyle={resultsStyles.content}
-      >
+      <ScrollView contentContainerStyle={resultsStyles.content}>
         {/* Results screen heading. */}
         <Text style={resultsStyles.title}>
           Product information confirmed
@@ -128,65 +114,54 @@ function AnalysisResultsScreen({ route }: any) {
 
         {/* Explains the current stage of development. */}
         <Text style={resultsStyles.subtitle}>
-          The information was reviewed and confirmed.
-          Allergy and halal screening will use this data.
+          The information was reviewed and confirmed. Allergy and halal
+          screening will use this data.
         </Text>
 
         {/* Shows the confirmed product details. */}
         <View style={resultsStyles.card}>
-          <Text style={resultsStyles.label}>
-            Brand
-          </Text>
+          <Text style={resultsStyles.label}>Brand</Text>
 
           <Text style={resultsStyles.value}>
             {product.brand || "Not available"}
           </Text>
 
-          <Text style={resultsStyles.label}>
-            Product
-          </Text>
+          <Text style={resultsStyles.label}>Product</Text>
 
           <Text style={resultsStyles.value}>
             {product.productName || "Not available"}
           </Text>
 
-          <Text style={resultsStyles.label}>
-            Ingredients
-          </Text>
+          <Text style={resultsStyles.label}>Ingredients</Text>
 
           <Text style={resultsStyles.value}>
             {product.ingredients || "Not available"}
           </Text>
 
-          <Text style={resultsStyles.label}>
-            Contains
-          </Text>
+          <Text style={resultsStyles.label}>Contains</Text>
 
           <Text style={resultsStyles.value}>
             {product.contains || "None extracted"}
           </Text>
 
-          <Text style={resultsStyles.label}>
-            May contain
-          </Text>
+          <Text style={resultsStyles.label}>May contain</Text>
 
           <Text style={resultsStyles.value}>
             {product.mayContain || "None extracted"}
           </Text>
         </View>
 
-        {/* Safety message shown until the screening logic is connected. */}
+        {/* Safety message shown until screening logic is connected. */}
         <Text style={resultsStyles.notice}>
-          Do not treat this screen as proof that the product
-          is safe or halal-certified. Always check the physical
-          package.
+          Do not treat this screen as proof that the product is safe or
+          halal-certified. Always check the physical package.
         </Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// Navigation styles.
+// Shared navigation styles.
 const navigationStyles = StyleSheet.create({
   headerTitle: {
     fontWeight: "700",
@@ -256,50 +231,39 @@ export default function App() {
         initialRouteName="Welcome"
         screenOptions={{
           headerTintColor: "#176B43",
-          headerTitleStyle:
-            navigationStyles.headerTitle,
+          headerTitleStyle: navigationStyles.headerTitle,
         }}
       >
         {/* First screen shown when the app opens. */}
         <Stack.Screen
           name="Welcome"
           component={WelcomeScreen}
-          options={{
-            headerShown: false,
-          }}
+          options={{ headerShown: false }}
         />
 
         {/* Authentication screens. */}
         <Stack.Screen
           name="Login"
           component={LoginScreen}
-          options={{
-            title: "Back",
-          }}
+          options={{ title: "Back" }}
         />
 
         <Stack.Screen
           name="Register"
           component={RegisterScreen}
-          options={{
-            title: "Back",
-          }}
+          options={{ title: "Back" }}
         />
 
         <Stack.Screen
           name="ForgotPassword"
           component={ForgotPasswordScreen}
-          options={{
-            title: "Reset password",
-          }}
+          options={{ title: "Reset password" }}
         />
 
         <Stack.Screen
           name="ResetPassword"
           component={ResetPasswordScreen}
-          options={{
-            title: "Reset password",
-          }}
+          options={{ title: "Reset password" }}
         />
 
         {/* Privacy and preference screens. */}
@@ -308,8 +272,7 @@ export default function App() {
           component={PrivacyNoticeScreen}
           options={({ route }) => ({
             title: "Privacy Notice",
-            headerBackVisible:
-              route.params?.readOnly === true,
+            headerBackVisible: route.params?.readOnly === true,
           })}
         />
 
@@ -336,35 +299,27 @@ export default function App() {
         <Stack.Screen
           name="Profile"
           component={ProfileScreen}
-          options={{
-            headerShown: false,
-          }}
+          options={{ headerShown: false }}
         />
 
         <Stack.Screen
           name="ProfileSettings"
           component={ProfileSettingsScreen}
-          options={{
-            title: "Profile settings",
-          }}
+          options={{ title: "Profile settings" }}
         />
 
         {/* Editable AI extraction review screen. */}
         <Stack.Screen
           name="LabelReview"
           component={LabelReviewScreen}
-          options={{
-            title: "Review Label",
-          }}
+          options={{ title: "Review Label" }}
         />
 
-        {/* Temporary results screen for confirmed information. */}
+        {/* Temporary results screen. */}
         <Stack.Screen
           name="AnalysisResults"
           component={AnalysisResultsScreen}
-          options={{
-            title: "Analysis Results",
-          }}
+          options={{ title: "Analysis Results" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

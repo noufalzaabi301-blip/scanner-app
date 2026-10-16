@@ -10,50 +10,66 @@ import {
   View,
 } from "react-native";
 
+const PRIVACY_NOTICE_KEY =
+  "labellens_privacy_notice_accepted_v1";
+
+const HAS_OPENED_KEY =
+  "labellens_has_opened_before";
+
 export default function WelcomeScreen({ navigation }: any) {
   const [checkingStart, setCheckingStart] = useState(true);
 
   useEffect(() => {
     async function chooseStartScreen() {
-      const hasOpenedBefore = await AsyncStorage.getItem(
-        "labellens_has_opened_before"
-      );
+      try {
+        // Show the Privacy Notice only once on this device.
+        const privacyAccepted =
+          await AsyncStorage.getItem(PRIVACY_NOTICE_KEY);
 
-      // First installation: show the Welcome page.
-      if (!hasOpenedBefore) {
-        await AsyncStorage.setItem(
-          "labellens_has_opened_before",
-          "true"
-        );
+        if (!privacyAccepted) {
+          navigation.replace("PrivacyNotice", {
+            fromAppStart: true,
+          });
+          return;
+        }
+
+        const hasOpenedBefore =
+          await AsyncStorage.getItem(HAS_OPENED_KEY);
+
+        // First normal Welcome-page visit after accepting Privacy.
+        if (!hasOpenedBefore) {
+          await AsyncStorage.setItem(
+            HAS_OPENED_KEY,
+            "true"
+          );
+
+          setCheckingStart(false);
+          return;
+        }
+
+        // Later openings: go straight to Home when signed in.
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session) {
+          navigation.replace("Home");
+          return;
+        }
 
         setCheckingStart(false);
-        return;
+      } catch {
+        setCheckingStart(false);
       }
-
-      // Later launches: open Home only when this device is signed in.
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        navigation.replace("Home");
-        return;
-      }
-
-      setCheckingStart(false);
     }
 
     chooseStartScreen();
   }, [navigation]);
 
   async function continueAsGuest() {
-    const { error } = await supabase.auth.signOut({
+    await supabase.auth.signOut({
       scope: "local",
     });
-
-    if (error) {
-      return;
-    }
 
     navigation.replace("Home");
   }
@@ -97,21 +113,21 @@ export default function WelcomeScreen({ navigation }: any) {
         </Text>
 
         <TouchableOpacity
-  style={styles.createButton}
-  onPress={() =>
-    navigation.navigate("PrivacyNotice", {
-      fromSignup: true,
-    })
-  }
->
-  <Text style={styles.createButtonText}>Create Account</Text>
-</TouchableOpacity>
+          style={styles.createButton}
+          onPress={() => navigation.navigate("Register")}
+        >
+          <Text style={styles.createButtonText}>
+            Create Account
+          </Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.signInButton}
           onPress={() => navigation.navigate("Login")}
         >
-          <Text style={styles.signInButtonText}>Sign In</Text>
+          <Text style={styles.signInButtonText}>
+            Sign In
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity

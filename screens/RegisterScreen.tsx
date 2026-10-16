@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Alert,
   Platform,
@@ -13,7 +13,7 @@ import {
 
 export default function RegisterScreen({
   navigation,
-  route,
+
 }: any) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -23,16 +23,7 @@ export default function RegisterScreen({
     useState("");
   const [loading, setLoading] = useState(false);
 
-  const privacyAccepted =
-    route?.params?.privacyAccepted === true;
-
-  useEffect(() => {
-    if (!privacyAccepted) {
-      navigation.replace("PrivacyNotice", {
-        fromSignup: true,
-      });
-    }
-  }, [navigation, privacyAccepted]);
+ 
 
   function showMessage(title: string, message: string) {
     if (Platform.OS === "web") {
@@ -43,13 +34,6 @@ export default function RegisterScreen({
   }
 
   async function createAccount() {
-    if (!privacyAccepted) {
-      navigation.replace("PrivacyNotice", {
-        fromSignup: true,
-      });
-      return;
-    }
-
     const cleanFirstName = firstName.trim();
     const cleanLastName = lastName.trim();
     const cleanEmail = email.trim().toLowerCase();
