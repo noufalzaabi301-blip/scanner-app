@@ -70,8 +70,7 @@ type ScreeningData = {
   halalExplanation: string;
 };
 
-export default function HomeScreen() {
-  // Controls which part of the workflow is visible.
+export default function HomeScreen({ navigation }: any) {  // Controls which part of the workflow is visible.
   const [stage, setStage] = useState<Stage>("home");
 
   // Prevents repeated barcode scans.
@@ -916,41 +915,62 @@ export default function HomeScreen() {
     }
   }
 
-  // Simple Home screen with no Profile button.
-  if (stage === "home") {
-    return (
-      <SafeAreaView style={styles.homePage}>
-        <View style={styles.homeContent}>
-          {/* Main Home heading. */}
-          <Text style={styles.homeTitle}>
-            Scan food barcode
-          </Text>
+  // Simple Home screen .
+ if (stage === "home") {
+  return (
+    <SafeAreaView style={styles.homePage}>
+      <View style={styles.homeContent}>
+        <Text style={styles.homeTitle}>
+          Scan food barcode
+        </Text>
 
-          {/* Short explanation. */}
-          <Text style={styles.homeSubtitle}>
-            Check the product against your allergy and halal preferences.
-          </Text>
+        <Text style={styles.homeSubtitle}>
+          Check the product against your allergy and halal preferences.
+        </Text>
 
-          {/* Main action button. */}
-          <TouchableOpacity
-            style={styles.scanButton}
-            onPress={openBarcodeCamera}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.scanButtonText}>
-              Scan product
-            </Text>
-          </TouchableOpacity>
-
-          {/* Fallback explanation. */}
-          <Text style={styles.homeNote}>
-            If the product is not found, the app will ask for
-            ingredient and package photos.
+        <TouchableOpacity
+          style={styles.scanButton}
+          onPress={openBarcodeCamera}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.scanButtonText}>
+            Scan product
           </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+        </TouchableOpacity>
+
+        <Text style={styles.homeNote}>
+          If the product is not found, the app will ask for
+          ingredient and package photos.
+        </Text>
+      </View>
+
+      <View style={styles.bottomNav}>
+        <TouchableOpacity style={styles.navItem}>
+          <Text style={[styles.navIcon, styles.activeNavIcon]}>
+            ▣
+          </Text>
+          <Text style={[styles.navText, styles.activeNavText]}>
+            Scan
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navItem} 
+        onPress={() => navigation.navigate("Avoid")}>
+        <Text style={styles.navIcon}>▤</Text>
+        <Text style={styles.navText}>Avoid</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => navigation.navigate("Profile")}
+        >
+          <Text style={styles.navIcon}>♙</Text>
+          <Text style={styles.navText}>Profile</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
 
   // Barcode lookup loading screen.
   if (stage === "lookup") {
@@ -1789,4 +1809,40 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 18,
   },
+  bottomNav: {
+  minHeight: 70,
+  backgroundColor: "#FFFFFF",
+  borderTopWidth: 1,
+  borderTopColor: "#DDE7E0",
+  flexDirection: "row",
+  justifyContent: "space-around",
+  alignItems: "center",
+},
+
+navItem: {
+  minWidth: 72,
+  alignItems: "center",
+  justifyContent: "center",
+  paddingVertical: 10,
+},
+
+navIcon: {
+  color: "#76857C",
+  fontSize: 21,
+},
+
+activeNavIcon: {
+  color: "#176B43",
+},
+
+navText: {
+  color: "#76857C",
+  fontSize: 12,
+  marginTop: 3,
+},
+
+activeNavText: {
+  color: "#176B43",
+  fontWeight: "700",
+},
 });

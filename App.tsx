@@ -25,6 +25,7 @@ import WelcomeScreen from "./screens/WelcomeScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
 import LabelReviewScreen from "./screens/LabelReviewScreen";
+import AvoidScreen from "./screens/AvoidScreen";
 
 // Defines the parameters allowed for every navigation route.
 export type RootStackParamList = {
@@ -33,6 +34,7 @@ export type RootStackParamList = {
   Register: { privacyAccepted?: boolean } | undefined;
   ForgotPassword: undefined;
   ResetPassword: undefined;
+  Avoid: undefined;
 
   PrivacyNotice:
     | {
@@ -322,6 +324,11 @@ export default function App() {
           options={{ title: "Analysis Results" }}
         />
       </Stack.Navigator>
+      <Stack.Screen
+  name="Avoid"
+  component={AvoidScreen}
+  options={{ headerShown: false }}
+/>
     </NavigationContainer>
   );
 }

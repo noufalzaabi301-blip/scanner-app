@@ -372,7 +372,7 @@ export default function ProfileScreen({ navigation }: any) {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={openPreferences}
+          onPress={() => navigation.navigate("Avoid")}
         >
           <Text style={styles.navIcon}>▤</Text>
           <Text style={styles.navText}>Avoid</Text>
