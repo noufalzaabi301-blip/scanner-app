@@ -1,166 +1,292 @@
-// Supabase client used to read the signed-in session.
+// ---------------------------------------------------------------------------
+// lib/labelExtraction.ts
+// Sends the front-package and ingredient-label photos to the Supabase
+// Edge Function that performs AI extraction.
+// ---------------------------------------------------------------------------
+
+import { Platform } from "react-native";
+
 import { supabase } from "./supabase";
 
-// Structured information returned by the AI.
+// Name of the deployed Supabase Edge Function.
+const FUNCTION_NAME = "extract-label";
+
+// AI confidence levels.
+export type ExtractionConfidence =
+  | "high"
+  | "medium"
+  | "low";
+
+// Structured result returned to HomeScreen.
 export type LabelExtraction = {
-  brand: string;
   product_name: string;
+  brand: string;
   variant: string;
   ingredients: string;
   contains: string;
   may_contain: string;
-  unclear_text: string;
-  confidence: "high" | "medium" | "low";
+  unclear_text: string[];
+  confidence: ExtractionConfidence;
 };
 
-// Converts a local phone image URI into a real Blob.
-async function uriToBlob(uri: string) {
-  // Read the local image through the device file system.
-  const response = await fetch(uri);
+// Converts unknown values into safe text.
+function text(value: unknown): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
 
-  // Stop if the local image cannot be read.
-  if (!response.ok) {
-    throw new Error(
-      "The captured image could not be read."
+// Creates a photo part that works on Android, iOS, and web.
+async function createPhotoPart(
+  uri: string,
+  name: string
+): Promise<Blob | { uri: string; name: string; type: string }> {
+  // Web needs a real Blob or File object.
+  if (Platform.OS === "web") {
+    const response = await fetch(uri);
+
+    if (!response.ok) {
+      throw new Error(
+        "The photo could not be read on the web."
+      );
+    }
+
+    const blob = await response.blob();
+
+    // Convert the web blob into a File with a reliable MIME type.
+    return new File(
+      [blob],
+      name,
+      {
+        type: blob.type || "image/jpeg",
+      }
     );
   }
 
-  // Convert the image into a Blob supported by FormData.
-  return response.blob();
+  // Android and iOS accept this React Native file format.
+  return {
+    uri,
+    name,
+    type: "image/jpeg",
+  };
 }
 
-// Sends both package photos to the AI Edge Function.
+// Converts the AI response into the format used by the app.
+function normalizeExtraction(
+  raw: unknown
+): LabelExtraction {
+  const value = (raw ?? {}) as Record<
+    string,
+    unknown
+  >;
+
+  const unclear: string[] = Array.isArray(
+    value.unclear_text
+  )
+    ? value.unclear_text
+        .filter(
+          (item): item is string =>
+            typeof item === "string"
+        )
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : text(value.unclear_text)
+        .split(/[,;\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+  const confidence: ExtractionConfidence =
+    value.confidence === "high" ||
+    value.confidence === "medium" ||
+    value.confidence === "low"
+      ? value.confidence
+      : "low";
+
+  return {
+    product_name: text(value.product_name),
+    brand: text(value.brand),
+    variant: text(value.variant),
+    ingredients: text(value.ingredients),
+    contains: text(value.contains),
+    may_contain: text(value.may_contain),
+    unclear_text: unclear,
+    confidence,
+  };
+}
+
+// Sends both photos to the Supabase Edge Function.
 export async function extractLabelFromPhotos(
   frontPhotoUri: string,
   ingredientsPhotoUri: string
 ): Promise<LabelExtraction> {
-  // Read the current login session.
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  // The Edge Function requires authentication.
-  if (!session?.access_token) {
-    throw new Error(
-      "Your login session expired. Please log in again."
-    );
-  }
-
-  // Read the Supabase project environment values.
   const supabaseUrl =
     process.env.EXPO_PUBLIC_SUPABASE_URL;
 
   const supabaseKey =
     process.env.EXPO_PUBLIC_SUPABASE_KEY;
 
-  // Stop if the environment variables are missing.
   if (!supabaseUrl || !supabaseKey) {
     throw new Error(
-      "Supabase environment variables are missing."
+      "The app is not configured for photo analysis."
     );
   }
 
-  // Convert both local images into supported Blobs.
-  const frontBlob = await uriToBlob(
-    frontPhotoUri
-  );
+  if (!frontPhotoUri) {
+    throw new Error(
+      "A valid front package photo is required."
+    );
+  }
 
-  const ingredientsBlob = await uriToBlob(
-    ingredientsPhotoUri
-  );
+  if (!ingredientsPhotoUri) {
+    throw new Error(
+      "The ingredient label photo could not be read."
+    );
+  }
 
-  // Create the multipart request body.
-  const formData = new FormData();
+  // Get the current signed-in user's session.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  // Add the front-package Blob.
-  formData.append(
-    "frontPhoto",
-    frontBlob,
-    "front-package.jpg"
-  );
+  // The Edge Function requires a valid user session.
+  if (!session?.access_token) {
+    throw new Error(
+      "Your login session expired. Please log in again."
+    );
+  }
 
-  // Add the ingredients-panel Blob.
-  formData.append(
-    "ingredientPhoto",
-    ingredientsBlob,
-    "ingredient-panel.jpg"
-  );
+  // Convert each photo into the correct platform-specific upload part.
+  let frontPhotoPart:
+    | Blob
+    | { uri: string; name: string; type: string };
 
-  // Create a request timeout.
-  const controller = new AbortController();
-
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, 90000);
+  let ingredientPhotoPart:
+    | Blob
+    | { uri: string; name: string; type: string };
 
   try {
-    // Call the deployed Supabase Edge Function.
-    const response = await fetch(
-      `${supabaseUrl}/functions/v1/extract-label`,
-      {
-        method: "POST",
-
-        // The API key identifies the Supabase project.
-        // The access token identifies the logged-in user.
-        headers: {
-          apikey: supabaseKey,
-          Authorization: `Bearer ${session.access_token}`,
-        },
-
-        // Send the Blob-based multipart form.
-        body: formData,
-
-        // Stop if the server takes too long.
-        signal: controller.signal,
-      }
+    frontPhotoPart = await createPhotoPart(
+      frontPhotoUri,
+      "front.jpg"
     );
 
-    // Read the response body.
-    const responseText = await response.text();
-
-    // Convert the response to JSON.
-    let responseData: any;
-
-    try {
-      responseData = JSON.parse(responseText);
-    } catch {
-      throw new Error(
-        `The server returned invalid data: ${responseText}`
-      );
-    }
-
-    // Display the actual Edge Function error.
-    if (!response.ok) {
-      throw new Error(
-        responseData?.error ||
-          `Extraction failed with status ${response.status}.`
-      );
-    }
-
-    // Confirm that extraction data exists.
-    if (!responseData?.extraction) {
-      throw new Error(
-        "The AI returned no extraction data."
-      );
-    }
-
-    // Return the structured extraction.
-    return responseData.extraction as LabelExtraction;
+    ingredientPhotoPart = await createPhotoPart(
+      ingredientsPhotoUri,
+      "ingredients.jpg"
+    );
   } catch (error) {
-    // Display a clear timeout message.
+    console.warn(
+      "Could not prepare photos:",
+      error
+    );
+
+    throw new Error(
+      "The photos could not be prepared for analysis."
+    );
+  }
+
+  // Create multipart form data.
+  const formData = new FormData();
+
+  // These names must match the Edge Function.
+  formData.append(
+    "frontPhoto",
+    frontPhotoPart as any
+  );
+
+  formData.append(
+    "ingredientPhoto",
+    ingredientPhotoPart as any
+  );
+
+  // Send the photos to Supabase.
+  // Do not manually set Content-Type because fetch creates
+  // the multipart boundary automatically.
+  const response = await fetch(
+    `${supabaseUrl}/functions/v1/${FUNCTION_NAME}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: formData,
+    }
+  );
+
+  // Read the server response.
+  let responseBody: any = null;
+
+  try {
+    responseBody = await response.json();
+  } catch {
+    responseBody = null;
+  }
+
+  // Convert server errors into readable messages.
+  if (!response.ok) {
+    const serverError = text(
+      responseBody?.error
+    ).toLowerCase();
+
     if (
-      error instanceof Error &&
-      error.name === "AbortError"
+      serverError.includes("ingredient")
     ) {
       throw new Error(
-        "The AI request timed out after 90 seconds."
+        "The ingredient label could not be read."
       );
     }
 
-    // Pass the real error back to HomeScreen.
-    throw error;
-  } finally {
-    // Always clear the timeout.
-    clearTimeout(timeoutId);
+    if (
+      serverError.includes("front") ||
+      serverError.includes("package")
+    ) {
+      throw new Error(
+        "A valid front package photo is required."
+      );
+    }
+
+    if (
+      response.status === 401 ||
+      response.status === 403
+    ) {
+      throw new Error(
+        "Your login session expired. Please log in again."
+      );
+    }
+
+    if (
+      response.status === 500 ||
+      response.status === 502
+    ) {
+      throw new Error(
+        "The AI analysis service is temporarily unavailable."
+      );
+    }
+
+    throw new Error(
+      text(responseBody?.error) ||
+        "Network error while analyzing the photos."
+    );
   }
+
+  // The Edge Function returns:
+  // { user_id, extraction, requires_user_confirmation }
+  const extraction =
+    responseBody?.extraction ||
+    responseBody?.data?.extraction ||
+    responseBody?.data ||
+    responseBody;
+
+  // Ensure the AI actually returned useful information.
+  if (
+    !extraction ||
+    typeof extraction !== "object"
+  ) {
+    throw new Error(
+      "The AI returned no extraction result."
+    );
+  }
+
+  return normalizeExtraction(extraction);
 }

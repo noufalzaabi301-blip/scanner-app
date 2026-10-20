@@ -16,16 +16,29 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "package": "com.blue_8929.LabelLens"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "extra": {
-      "eas": {
-        "projectId": "8d48f4ec-a0f2-402d-9d61-f4c150be1046"
-      }
-    }
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "LabelLens uses the camera to scan product barcodes.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "LabelLens uses the camera to photograph ingredient labels and product packages.",
+          "photosPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ]
   }
 }
