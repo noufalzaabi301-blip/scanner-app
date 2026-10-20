@@ -1,4 +1,4 @@
-// Basic placeholder Profile screen.
+// Temporary Profile screen.
 // Profile functionality will be implemented later.
 
 import {
@@ -12,11 +12,12 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.content}>
-        {/* Temporary message until Profile is implemented. */}
+        {/* Temporary profile heading. */}
         <Text style={styles.title}>
           Profile
         </Text>
 
+        {/* Placeholder until Profile is implemented. */}
         <Text style={styles.message}>
           Profile settings will be available later.
         </Text>
