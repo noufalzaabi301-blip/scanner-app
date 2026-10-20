@@ -72,7 +72,7 @@ type Stage =
 
 // Product information used by the review and result stages.
 // Barcode is nullable because photo-only products may not have a barcode.
-  type ProductData = Omit<ProductInfo, "barcode"> & {
+type ProductData = Omit<ProductInfo, "barcode"> & {
   barcode: string | null;
   frontPhotoUri: string | null;
   ingredientsPhotoUri: string | null;
@@ -2134,4 +2134,40 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 18,
   },
+  bottomNav: {
+  minHeight: 70,
+  backgroundColor: "#FFFFFF",
+  borderTopWidth: 1,
+  borderTopColor: "#DDE7E0",
+  flexDirection: "row",
+  justifyContent: "space-around",
+  alignItems: "center",
+},
+
+navItem: {
+  minWidth: 72,
+  alignItems: "center",
+  justifyContent: "center",
+  paddingVertical: 10,
+},
+
+navIcon: {
+  color: "#76857C",
+  fontSize: 21,
+},
+
+activeNavIcon: {
+  color: "#176B43",
+},
+
+navText: {
+  color: "#76857C",
+  fontSize: 12,
+  marginTop: 3,
+},
+
+activeNavText: {
+  color: "#176B43",
+  fontWeight: "700",
+},
 });

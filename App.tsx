@@ -1,10 +1,10 @@
-// Manages navigation between all application screens.
+// Manages navigation between application screens.
 import { NavigationContainer } from "@react-navigation/native";
 
 // Provides mobile-style stack navigation.
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-// Provides safe-area support on phones.
+// Provides safe-area support for mobile devices.
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 // Application screens.
@@ -16,23 +16,32 @@ import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 import HomeScreen from "./screens/HomeScreen";
 
-// Defines the valid navigation routes and their parameters.
+// Screens added by the other project branch.
+import WelcomeScreen from "./screens/WelcomeScreen";
+import ProfileScreen from "./screens/ProfileScreen";
+import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
+import AvoidScreen from "./screens/AvoidScreen";
+
+// Defines all valid navigation routes.
 export type RootStackParamList = {
   // The app opens at Login while testing.
   Login: undefined;
 
-  // Registration may receive privacy confirmation.
+  // Welcome screen remains available if needed later.
+  Welcome: undefined;
+
+  // Registration can receive privacy confirmation.
   Register:
     | {
         privacyAccepted?: boolean;
       }
     | undefined;
 
-  // Password recovery screens.
+  // Password recovery routes.
   ForgotPassword: undefined;
   ResetPassword: undefined;
 
-  // Privacy page can be opened in different situations.
+  // Privacy notice parameters.
   PrivacyNotice:
     | {
         fromAppStart?: boolean;
@@ -41,7 +50,7 @@ export type RootStackParamList = {
       }
     | undefined;
 
-  // Preferences can be opened for first-time setup or editing.
+  // Preferences can be opened for setup or editing.
   Preferences:
     | {
         mode?: "edit";
@@ -50,6 +59,13 @@ export type RootStackParamList = {
 
   // Main scanning screen.
   Home: undefined;
+
+  // Profile-related routes.
+  Profile: undefined;
+  ProfileSettings: undefined;
+
+  // Avoid List route.
+  Avoid: undefined;
 };
 
 // Creates the typed navigation stack.
@@ -61,7 +77,7 @@ export default function App() {
     <SafeAreaProvider>
       <NavigationContainer>
         <Stack.Navigator
-          // Opens the login screen first while testing.
+          // Opens Login first while testing.
           initialRouteName="Login"
           screenOptions={{
             headerTintColor: "#176B43",
@@ -70,6 +86,15 @@ export default function App() {
             },
           }}
         >
+          {/* Welcome screen. */}
+          <Stack.Screen
+            name="Welcome"
+            component={WelcomeScreen}
+            options={{
+              headerShown: false,
+            }}
+          />
+
           {/* Login screen. */}
           <Stack.Screen
             name="Login"
@@ -113,7 +138,7 @@ export default function App() {
             options={({ route }) => ({
               title: "Privacy Notice",
 
-              // The page can go back only when opened in read-only mode.
+              // Read-only privacy pages can use the back arrow.
               headerBackVisible:
                 route.params?.readOnly === true,
             })}
@@ -133,23 +158,48 @@ export default function App() {
                   ? "Edit preferences"
                   : "Your preferences",
 
-                // First-time setup cannot go back.
-                // Edit mode can go back to Home.
+                // Setup cannot go backward.
+                // Editing can return to Home.
                 headerBackVisible: isEdit,
                 gestureEnabled: isEdit,
               };
             }}
           />
 
-          {/* Main Home and barcode-scanning screen. */}
+          {/* Main Home and scanning screen. */}
           <Stack.Screen
             name="Home"
             component={HomeScreen}
             options={{
               title: "LabelLens",
-
-              // Users should not return to setup with the header arrow.
               headerBackVisible: false,
+            }}
+          />
+
+          {/* Profile screen kept for the other project branch. */}
+          <Stack.Screen
+            name="Profile"
+            component={ProfileScreen}
+            options={{
+              title: "Profile",
+            }}
+          />
+
+          {/* Profile settings screen. */}
+          <Stack.Screen
+            name="ProfileSettings"
+            component={ProfileSettingsScreen}
+            options={{
+              title: "Profile settings",
+            }}
+          />
+
+          {/* Avoid List screen kept for future use. */}
+          <Stack.Screen
+            name="Avoid"
+            component={AvoidScreen}
+            options={{
+              title: "My Avoid List",
             }}
           />
         </Stack.Navigator>
