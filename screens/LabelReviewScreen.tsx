@@ -1,7 +1,5 @@
-// React state is used for editable extracted fields.
 import { useState } from "react";
 
-// React Native components used to display and edit the extraction.
 import {
   Alert,
   Image,
@@ -14,45 +12,65 @@ import {
   View,
 } from "react-native";
 
-// The structure returned by the AI extraction function.
 import type { LabelExtraction } from "../lib/labelExtraction";
+
+type ReviewRouteParams = {
+  barcode: string | null;
+  frontPhotoUri: string;
+  ingredientsPhotoUri: string;
+  extraction: LabelExtraction;
+};
 
 export default function LabelReviewScreen({
   navigation,
   route,
 }: any) {
-  // Read the data sent from HomeScreen.
   const {
     barcode,
     frontPhotoUri,
     ingredientsPhotoUri,
     extraction,
-  }: {
-    barcode: string | null;
-    frontPhotoUri: string;
-    ingredientsPhotoUri: string;
-    extraction: LabelExtraction;
-  } = route.params;
+  } = route.params as ReviewRouteParams;
 
-  // Every extracted field can be corrected by the user.
-  const [brand, setBrand] = useState(extraction.brand);
+  const [brand, setBrand] = useState(
+    extraction?.brand ?? ""
+  );
+
   const [productName, setProductName] = useState(
-    extraction.product_name
-  );
-  const [variant, setVariant] = useState(extraction.variant);
-  const [ingredients, setIngredients] = useState(
-    extraction.ingredients
-  );
-  const [contains, setContains] = useState(
-    extraction.contains
-  );
-  const [mayContain, setMayContain] = useState(
-    extraction.may_contain
+    extraction?.product_name ?? ""
   );
 
-  // Sends the confirmed information to the next analysis step.
+  const [variant, setVariant] = useState(
+    extraction?.variant ?? ""
+  );
+
+  const [ingredients, setIngredients] = useState(
+    extraction?.ingredients ?? ""
+  );
+
+  const [contains, setContains] = useState(
+    extraction?.contains ?? ""
+  );
+
+  const [mayContain, setMayContain] = useState(
+    extraction?.may_contain ?? ""
+  );
+
+  // Supports both an array and an older string response.
+  const unclearItems: string[] = Array.isArray(
+    extraction?.unclear_text
+  )
+    ? extraction.unclear_text
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+    : extraction?.unclear_text
+      ? String(extraction.unclear_text)
+          .split(/[,;\n]+/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
+
   function confirmAndAnalyze() {
-    // Prevent analysis when the ingredient information is empty.
     if (!ingredients.trim()) {
       Alert.alert(
         "Ingredients required",
@@ -61,9 +79,8 @@ export default function LabelReviewScreen({
       return;
     }
 
-    // This is the confirmed user-edited product information.
     const confirmedProduct = {
-      barcode,
+      barcode: barcode ?? null,
       brand: brand.trim(),
       productName: productName.trim(),
       variant: variant.trim(),
@@ -75,17 +92,13 @@ export default function LabelReviewScreen({
       source: "AI photo extraction",
     };
 
-    // For now, display confirmation.
-    // The next step will send this object to the allergy
-    // and halal screening logic.
     Alert.alert(
       "Information confirmed",
-      "The extracted information is ready for allergy and halal analysis.",
+      "The product is ready for allergy and halal analysis.",
       [
         {
-          text: "OK",
+          text: "Analyze",
           onPress: () => {
-            // Keep the confirmed object available for the next screen.
             navigation.navigate("AnalysisResults", {
               product: confirmedProduct,
             });
@@ -102,18 +115,15 @@ export default function LabelReviewScreen({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Screen title. */}
         <Text style={styles.title}>
           Review product information
         </Text>
 
-        {/* Explanation before confirmation. */}
         <Text style={styles.subtitle}>
-          AI extracted the information from your photos. Please
-          correct anything that is not accurate.
+          Please check the information extracted from the package
+          photos. Edit anything that looks incorrect.
         </Text>
 
-        {/* Show the original front-package photo. */}
         <Text style={styles.sectionTitle}>
           Front-package photo
         </Text>
@@ -123,9 +133,8 @@ export default function LabelReviewScreen({
           style={styles.photo}
         />
 
-        {/* Show the original ingredient-panel photo. */}
         <Text style={styles.sectionTitle}>
-          Ingredient-panel photo
+          Ingredient-label photo
         </Text>
 
         <Image
@@ -133,18 +142,35 @@ export default function LabelReviewScreen({
           style={styles.photo}
         />
 
-        {/* Show AI confidence. */}
         <View style={styles.confidenceBox}>
           <Text style={styles.confidenceLabel}>
             AI confidence
           </Text>
 
           <Text style={styles.confidenceValue}>
-            {extraction.confidence}
+            {extraction?.confidence ?? "low"}
           </Text>
         </View>
 
-        {/* Editable brand field. */}
+        {unclearItems.length > 0 && (
+          <View style={styles.warningBox}>
+            <Text style={styles.warningTitle}>
+              Please check these unclear items
+            </Text>
+
+            <Text style={styles.warningText}>
+              {unclearItems.map((item, index) => (
+                <Text key={`${item}-${index}`}>
+                  {item}
+                  {index < unclearItems.length - 1
+                    ? "\n"
+                    : ""}
+                </Text>
+              ))}
+            </Text>
+          </View>
+        )}
+
         <Text style={styles.label}>Brand</Text>
 
         <TextInput
@@ -155,7 +181,6 @@ export default function LabelReviewScreen({
           placeholderTextColor="#AAB8AE"
         />
 
-        {/* Editable product-name field. */}
         <Text style={styles.label}>Product name</Text>
 
         <TextInput
@@ -166,7 +191,6 @@ export default function LabelReviewScreen({
           placeholderTextColor="#AAB8AE"
         />
 
-        {/* Editable variant field. */}
         <Text style={styles.label}>Variant</Text>
 
         <TextInput
@@ -177,7 +201,6 @@ export default function LabelReviewScreen({
           placeholderTextColor="#AAB8AE"
         />
 
-        {/* Editable complete ingredient list. */}
         <Text style={styles.label}>Ingredients</Text>
 
         <TextInput
@@ -190,7 +213,6 @@ export default function LabelReviewScreen({
           textAlignVertical="top"
         />
 
-        {/* Editable Contains field. */}
         <Text style={styles.label}>Contains</Text>
 
         <TextInput
@@ -201,7 +223,6 @@ export default function LabelReviewScreen({
           placeholderTextColor="#AAB8AE"
         />
 
-        {/* Editable May Contain field. */}
         <Text style={styles.label}>May contain</Text>
 
         <TextInput
@@ -212,40 +233,26 @@ export default function LabelReviewScreen({
           placeholderTextColor="#AAB8AE"
         />
 
-        {/* Show text that the AI could not read clearly. */}
-        {extraction.unclear_text.trim() !== "" && (
-          <View style={styles.warningBox}>
-            <Text style={styles.warningTitle}>
-              Please check unclear text
-            </Text>
-
-            <Text style={styles.warningText}>
-              {extraction.unclear_text}
-            </Text>
-          </View>
-        )}
-
-        {/* Confirm the user-edited information. */}
         <TouchableOpacity
           style={styles.confirmButton}
           onPress={confirmAndAnalyze}
+          activeOpacity={0.8}
         >
           <Text style={styles.confirmButtonText}>
             Confirm and Analyze
           </Text>
         </TouchableOpacity>
 
-        {/* Return to Home to retake the photos. */}
         <TouchableOpacity
           style={styles.retakeButton}
           onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
         >
           <Text style={styles.retakeButtonText}>
             Retake Photos
           </Text>
         </TouchableOpacity>
 
-        {/* Safety reminder. */}
         <Text style={styles.note}>
           Always compare the extracted information with the
           physical package before confirming.
@@ -255,7 +262,6 @@ export default function LabelReviewScreen({
   );
 }
 
-// Styles for the review screen.
 const styles = StyleSheet.create({
   page: {
     flex: 1,
@@ -360,13 +366,13 @@ const styles = StyleSheet.create({
     color: "#9A6500",
     fontSize: 14,
     fontWeight: "800",
-    marginBottom: 5,
+    marginBottom: 6,
   },
 
   warningText: {
     color: "#755000",
     fontSize: 13,
-    lineHeight: 19,
+    lineHeight: 20,
   },
 
   confirmButton: {

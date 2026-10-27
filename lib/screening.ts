@@ -769,8 +769,6 @@ const HALAL_VERIFY_TERMS = [
   "ethyl alcohol",
   "alcohol",
   "vanilla extract",
-  "lecithin",
-  "e322",
   "e422",
   "e470",
   "e470a",

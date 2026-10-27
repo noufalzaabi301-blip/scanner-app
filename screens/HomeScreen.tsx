@@ -411,11 +411,18 @@ export default function HomeScreen({ navigation }: any) {
           <Text style={styles.activeBottomNavText}>Scan</Text>
         </TouchableOpacity>
 
-        {/* Avoid List placeholder. It cannot be opened yet. */}
-        <View style={[styles.bottomNavItem, styles.disabledBottomNavItem]}>
-          <Text style={styles.disabledBottomNavIcon}>⊘</Text>
-          <Text style={styles.disabledBottomNavText}>Avoid List</Text>
-        </View>
+        {/* Opens the user's saved Avoid List. */}
+<TouchableOpacity
+  style={styles.bottomNavItem}
+  onPress={() => navigation.navigate("Avoid")}
+  activeOpacity={0.8}
+  accessibilityLabel="Open Avoid List"
+>
+  <Text style={styles.disabledBottomNavIcon}>▤</Text>
+  <Text style={styles.disabledBottomNavText}>
+    Avoid List
+  </Text>
+</TouchableOpacity>
 
         {/* Profile placeholder. It cannot be opened yet. */}
         <View style={[styles.bottomNavItem, styles.disabledBottomNavItem]}>

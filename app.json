@@ -38,7 +38,8 @@
           "photosPermission": false,
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }
