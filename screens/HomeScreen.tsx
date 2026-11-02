@@ -508,6 +508,40 @@ export default function HomeScreen({ navigation }: any) {
       </View>
     );
   }
+  async function uploadAvoidPhoto(
+  userId: string,
+  photoUri: string | null,
+  photoName: string
+): Promise<string | null> {
+  if (!photoUri) {
+    return null;
+  }
+
+  // Already-uploaded HTTPS URLs do not need uploading again.
+  if (/^https?:\/\//i.test(photoUri)) {
+    return photoUri;
+  }
+
+  const response = await fetch(photoUri);
+  const fileData = await response.arrayBuffer();
+
+  const filePath = `${userId}/${Date.now()}-${photoName}.jpg`;
+
+  const { error } = await supabase.storage
+    .from("avoid-products")
+    .upload(filePath, fileData, {
+      contentType: "image/jpeg",
+      upsert: false,
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  // Store the Storage path.
+  // AvoidListScreen converts it into a signed URL.
+  return filePath;
+}
 
   // -------------------------------------------------------------------------
   // BARCODE

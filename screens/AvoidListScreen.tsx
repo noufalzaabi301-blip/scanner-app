@@ -23,7 +23,7 @@ import * as Sharing from "expo-sharing";
 
 import { supabase } from "../lib/supabase";
 
-const BUCKET_NAME = "avoid-products";
+const PHOTO_BUCKET = "avoid-products";
 
 type AvoidItem = {
   id: string;
@@ -36,8 +36,8 @@ type AvoidItem = {
   may_contain_text: string | null;
   save_reason: string | null;
   source: string | null;
-  front_photo_url: string | null;
-  ingredients_photo_url: string | null;
+  front_photo_url?: string | null;
+  ingredients_photo_url?: string | null;
   created_at: string;
 };
 
@@ -47,15 +47,15 @@ type Preferences = {
   other_allergy: string | null;
 };
 
-function showMessage(title: string, message: string) {
+function message(title: string, text: string) {
   if (Platform.OS === "web") {
-    window.alert(`${title}\n\n${message}`);
+    window.alert(`${title}\n\n${text}`);
   } else {
-    Alert.alert(title, message);
+    Alert.alert(title, text);
   }
 }
 
-function errorMessage(error: any) {
+function getErrorText(error: any) {
   return (
     error?.message ||
     error?.details ||
@@ -87,7 +87,7 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-function storagePath(value: string | null) {
+function getStoragePath(value: string | null) {
   if (!value) {
     return null;
   }
@@ -107,13 +107,15 @@ function storagePath(value: string | null) {
   return value.replace(/^\/+/, "");
 }
 
-async function getPhotoUrls(
-  values: Array<string | null>
+async function getSignedPhotoUrls(
+  values: Array<string | null | undefined>
 ) {
   const paths = [
     ...new Set(
       values
-        .map(storagePath)
+        .map((value) =>
+          getStoragePath(value ?? null)
+        )
         .filter((value): value is string => Boolean(value))
     ),
   ];
@@ -123,7 +125,7 @@ async function getPhotoUrls(
   }
 
   const { data, error } = await supabase.storage
-    .from(BUCKET_NAME)
+    .from(PHOTO_BUCKET)
     .createSignedUrls(paths, 60 * 60);
 
   if (error) {
@@ -132,16 +134,69 @@ async function getPhotoUrls(
 
   const result: Record<string, string> = {};
 
-  for (const row of data ?? []) {
-    if (row.path && row.signedUrl) {
-      result[row.path] = row.signedUrl;
+  for (const item of data ?? []) {
+    if (item.path && item.signedUrl) {
+      result[item.path] = item.signedUrl;
     }
   }
 
   return result;
 }
 
-function Photo({
+async function printHtmlOnWeb(html: string) {
+  const iframe = document.createElement("iframe");
+
+  iframe.style.position = "fixed";
+  iframe.style.left = "-10000px";
+  iframe.style.top = "0";
+  iframe.style.width = "900px";
+  iframe.style.height = "1200px";
+  iframe.style.border = "0";
+
+  document.body.appendChild(iframe);
+
+  const frameWindow = iframe.contentWindow;
+  const frameDocument = frameWindow?.document;
+
+  if (!frameWindow || !frameDocument) {
+    iframe.remove();
+    throw new Error("Could not prepare the PDF.");
+  }
+
+  frameDocument.open();
+  frameDocument.write(html);
+  frameDocument.close();
+
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 1000);
+  });
+
+  const images = Array.from(frameDocument.images);
+
+  await Promise.all(
+    images.map(
+      (image) =>
+        new Promise<void>((resolve) => {
+          if (image.complete) {
+            resolve();
+            return;
+          }
+
+          image.onload = () => resolve();
+          image.onerror = () => resolve();
+        })
+    )
+  );
+
+  frameWindow.focus();
+  frameWindow.print();
+
+  setTimeout(() => {
+    iframe.remove();
+  }, 120000);
+}
+
+function ProductImage({
   uri,
   style,
 }: {
@@ -152,7 +207,7 @@ function Photo({
 
   if (!uri || failed) {
     return (
-      <View style={[style, styles.photoPlaceholder]}>
+      <View style={[style, styles.imagePlaceholder]}>
         <Ionicons
           name="image-outline"
           size={28}
@@ -163,7 +218,7 @@ function Photo({
   }
 
   return (
-    <View style={[style, styles.photoFrame]}>
+    <View style={[style, styles.imageFrame]}>
       <Image
         source={{ uri }}
         style={StyleSheet.absoluteFill}
@@ -186,13 +241,14 @@ export default function AvoidListScreen({
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [searchText, setSearchText] = useState("");
-  const [deletingId, setDeletingId] = useState<string | null>(
-    null
-  );
+  const [search, setSearch] = useState("");
 
   const [detailsItem, setDetailsItem] =
     useState<AvoidItem | null>(null);
+
+  const [deletingId, setDeletingId] = useState<string | null>(
+    null
+  );
 
   const [shareVisible, setShareVisible] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>(
@@ -216,7 +272,7 @@ export default function AvoidListScreen({
 
       if (!user) {
         throw new Error(
-          "Your login session has expired. Please log in again."
+          "Your login session expired. Please log in again."
         );
       }
 
@@ -244,8 +300,8 @@ export default function AvoidListScreen({
           ascending: false,
         });
 
-      // This fallback allows the list to load if the photo
-      // columns have not yet been added to Supabase.
+      // Fallback for databases where photo columns
+      // have not been added yet.
       if (
         result.error &&
         /front_photo_url|ingredients_photo_url/i.test(
@@ -279,7 +335,7 @@ export default function AvoidListScreen({
         throw result.error;
       }
 
-      const loadedItems = (result.data ?? []).map(
+      const loaded = (result.data ?? []).map(
         (item: any) => ({
           ...item,
           front_photo_url:
@@ -289,7 +345,7 @@ export default function AvoidListScreen({
         })
       ) as AvoidItem[];
 
-      setItems(loadedItems);
+      setItems(loaded);
 
       const preferenceResult = await supabase
         .from("user_preferences")
@@ -317,28 +373,17 @@ export default function AvoidListScreen({
         });
       }
 
-      try {
-        const signedUrls = await getPhotoUrls(
-          loadedItems.flatMap((item) => [
-            item.front_photo_url,
-            item.ingredients_photo_url,
-          ])
-        );
-
-        setPhotoUrls(signedUrls);
-      } catch (photoError) {
-        console.warn(
-          "Photo URLs could not be loaded:",
-          photoError
-        );
-      }
-    } catch (loadError: any) {
-      console.error(
-        "Avoid List loading error:",
-        loadError
+      const signedUrls = await getSignedPhotoUrls(
+        loaded.flatMap((item) => [
+          item.front_photo_url,
+          item.ingredients_photo_url,
+        ])
       );
 
-      setError(errorMessage(loadError));
+      setPhotoUrls(signedUrls);
+    } catch (loadError: any) {
+      console.error("Avoid List error:", loadError);
+      setError(getErrorText(loadError));
     } finally {
       setLoading(false);
     }
@@ -350,7 +395,7 @@ export default function AvoidListScreen({
     }, [loadAvoidList])
   );
 
-  function displayPhoto(value: string | null) {
+  function getPhotoUrl(value: string | null | undefined) {
     if (!value) {
       return null;
     }
@@ -359,20 +404,20 @@ export default function AvoidListScreen({
       return value;
     }
 
-    const path = storagePath(value);
+    const path = getStoragePath(value);
 
     return path ? photoUrls[path] ?? null : null;
   }
 
   const filteredItems = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
+    const query = search.trim().toLowerCase();
 
     if (!query) {
       return items;
     }
 
-    return items.filter((item) => {
-      const text = [
+    return items.filter((item) =>
+      [
         item.product_name,
         item.brand_name,
         item.variant,
@@ -384,11 +429,10 @@ export default function AvoidListScreen({
       ]
         .filter(Boolean)
         .join(" ")
-        .toLowerCase();
-
-      return text.includes(query);
-    });
-  }, [items, searchText]);
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [items, search]);
 
   function toggleSelected(id: string) {
     setSelectedIds((current) =>
@@ -406,7 +450,7 @@ export default function AvoidListScreen({
     setSelectedIds([]);
   }
 
-  async function removeItem(item: AvoidItem) {
+  async function deleteItem(item: AvoidItem) {
     const remove = async () => {
       setDeletingId(item.id);
 
@@ -433,14 +477,14 @@ export default function AvoidListScreen({
 
         setDetailsItem(null);
 
-        showMessage(
+        message(
           "Removed",
           "The product was removed from your Avoid List."
         );
       } catch (deleteError: any) {
-        showMessage(
+        message(
           "Could not remove product",
-          errorMessage(deleteError)
+          getErrorText(deleteError)
         );
       } finally {
         setDeletingId(null);
@@ -491,9 +535,11 @@ export default function AvoidListScreen({
         .map((item) => item.trim())
         .filter(Boolean) ?? [];
 
-    return [...new Set([...standard, ...custom])].join(
-      ", "
-    ) || "No allergies selected";
+    return (
+      [...new Set([...standard, ...custom])].join(
+        ", "
+      ) || "No allergies selected"
+    );
   }
 
   async function createPdf() {
@@ -502,7 +548,7 @@ export default function AvoidListScreen({
     );
 
     if (selectedItems.length === 0) {
-      showMessage(
+      message(
         "Select products",
         "Please select at least one product."
       );
@@ -513,170 +559,246 @@ export default function AvoidListScreen({
 
     try {
       const productHtml = selectedItems
-        .map((item, index) => {
-          const image = displayPhoto(
-            item.front_photo_url
-          );
+  .map((item, index) => {
+    const image = getPhotoUrl(item.front_photo_url);
 
-          return `
-            <section class="product">
-              ${
-                image
-                  ? `<img class="product-image" src="${escapeHtml(
-                      image
-                    )}" />`
-                  : `<div class="missing-image">
-                      Product image unavailable
-                    </div>`
-              }
+    return `
+      <tr>
+        <td class="number">${index + 1}</td>
 
-              <h2>${index + 1}. ${escapeHtml(
-                item.product_name || "Unnamed product"
-              )}</h2>
+        <td class="photo-cell">
+          ${
+            image
+              ? `<img src="${escapeHtml(image)}" />`
+              : `<div class="no-photo">No photo</div>`
+          }
+        </td>
 
-              <p><b>Brand:</b> ${escapeHtml(
-                item.brand_name || "Not available"
-              )}</p>
+        <td>
+          <strong>${escapeHtml(
+            item.product_name || "Unnamed product"
+          )}</strong>
+          <br />
+          <span class="muted">
+            ${escapeHtml(
+              item.brand_name || "Brand unavailable"
+            )}
+          </span>
+        </td>
 
-              <p><b>Variant:</b> ${escapeHtml(
-                item.variant || "Not available"
-              )}</p>
+        <td>
+          ${escapeHtml(item.variant || "—")}
+        </td>
 
-              <p><b>Barcode:</b> ${escapeHtml(
-                item.barcode || "Not available"
-              )}</p>
+        <td>
+          ${escapeHtml(item.barcode || "—")}
+        </td>
 
-              <div class="warning">
-                <b>Why it was saved:</b><br />
-                ${escapeHtml(
-                  item.save_reason || "Saved by the user"
-                )}
-              </div>
+        <td class="warning">
+          ${escapeHtml(
+            item.contains_text ||
+              item.may_contain_text ||
+              item.save_reason ||
+              "Saved for review"
+          )}
+        </td>
 
-              <p><b>Contains:</b> ${escapeHtml(
-                item.contains_text || "None listed"
-              )}</p>
+        
+      </tr>
+    `;
+  })
+  .join("");
 
-              <p><b>May contain:</b> ${escapeHtml(
-                item.may_contain_text || "None listed"
-              )}</p>
+const html = `
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="UTF-8" />
 
-              <div class="ingredients">
-                <b>Full ingredients:</b><br />
-                ${escapeHtml(
-                  item.ingredients_text ||
-                    "Ingredients unavailable"
-                )}
-              </div>
+      <style>
+        @page {
+          size: A4 landscape;
+          margin: 12mm;
+        }
 
-              <p><b>Saved:</b> ${formatDate(
-                item.created_at
-              )}</p>
-            </section>
-          `;
-        })
-        .join("");
+        body {
+          font-family: Arial, sans-serif;
+          color: #1d3829;
+          font-size: 10px;
+        }
 
-      const html = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="UTF-8" />
-            <style>
-              body {
-                font-family: Arial, sans-serif;
-                color: #1d3829;
-                padding: 30px;
-              }
+        h1 {
+          color: #176b43;
+          font-size: 22px;
+          margin: 0;
+        }
 
-              h1 {
-                color: #176b43;
-                border-bottom: 3px solid #176b43;
-                padding-bottom: 10px;
-              }
+        h2 {
+          color: #176b43;
+          font-size: 13px;
+          margin: 18px 0 7px;
+        }
 
-              h2 {
-                color: #176b43;
-              }
+        .header {
+          border-bottom: 2px solid #176b43;
+          padding-bottom: 8px;
+          margin-bottom: 12px;
+        }
 
-              .profile {
-                background: #eaf5ed;
-                padding: 15px;
-                border-radius: 10px;
-                margin-bottom: 25px;
-              }
+        .generated {
+          color: #63776b;
+          font-size: 9px;
+          margin-top: 4px;
+        }
 
-              .product {
-                border: 1px solid #dce5de;
-                border-radius: 12px;
-                padding: 18px;
-                margin-bottom: 20px;
-                page-break-inside: avoid;
-              }
+        .profile {
+          background: #eaf5ed;
+          border-radius: 7px;
+          padding: 9px;
+          margin-bottom: 12px;
+        }
 
-              .product-image {
-                width: 160px;
-                height: 160px;
-                object-fit: cover;
-                border-radius: 10px;
-              }
+        .profile p {
+          margin: 3px 0;
+        }
 
-              .missing-image {
-                width: 160px;
-                height: 160px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                background: #f1f6f2;
-                color: #63776b;
-                text-align: center;
-              }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
 
-              .warning {
-                background: #fff2d6;
-                padding: 10px;
-                border-radius: 8px;
-              }
+        th {
+          background: #176b43;
+          color: white;
+          padding: 6px;
+          text-align: left;
+          font-size: 9px;
+        }
 
-              .ingredients {
-                background: #f8fbf8;
-                border: 1px solid #dce5de;
-                padding: 10px;
-                border-radius: 8px;
-                line-height: 1.6;
-              }
-            </style>
-          </head>
+        td {
+          border-bottom: 1px solid #dce5de;
+          padding: 5px;
+          vertical-align: middle;
+          word-wrap: break-word;
+        }
 
-          <body>
-            <h1>LabelLens Avoid List</h1>
+        tr:nth-child(even) {
+          background: #f6faf7;
+        }
 
-            <div class="profile">
-              <h2>Allergy profile</h2>
-              <p><b>Allergies:</b> ${escapeHtml(
-                allergiesText()
-              )}</p>
-              <p><b>Halal screening:</b> ${
-                preferences?.prefers_halal
-                  ? "Enabled"
-                  : "Not enabled"
-              }</p>
-            </div>
+        .number {
+          width: 25px;
+          text-align: center;
+        }
 
-            <h2>Selected products</h2>
+        .photo-cell {
+          width: 55px;
+          text-align: center;
+        }
 
-            ${productHtml}
-          </body>
-        </html>
-      `;
+        .photo-cell img {
+          width: 42px;
+          height: 42px;
+          object-fit: cover;
+          border-radius: 5px;
+        }
+
+        .no-photo {
+          width: 42px;
+          height: 42px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #eef3ef;
+          color: #63776b;
+          font-size: 7px;
+          text-align: center;
+          border-radius: 5px;
+        }
+
+        .muted {
+          color: #63776b;
+          font-size: 9px;
+        }
+
+        .warning {
+          color: #a5281d;
+          font-size: 9px;
+        }
+
+        .footer {
+          color: #63776b;
+          font-size: 8px;
+          text-align: center;
+          margin-top: 14px;
+          border-top: 1px solid #dce5de;
+          padding-top: 7px;
+        }
+      </style>
+    </head>
+
+    <body>
+      <div class="header">
+        <h1>LabelLens Avoid List</h1>
+
+        <div class="generated">
+          Generated by the LabelLens application —
+          ${escapeHtml(new Date().toLocaleString())}
+        </div>
+      </div>
+
+      <div class="profile">
+        <strong>Allergy profile</strong>
+
+        <p>
+          <strong>Allergies:</strong>
+          ${escapeHtml(allergiesText())}
+        </p>
+
+        <p>
+          <strong>Halal screening:</strong>
+          ${
+            preferences?.prefers_halal
+              ? "Enabled"
+              : "Not enabled"
+          }
+        </p>
+      </div>
+
+      <h2>
+        Selected products (${selectedItems.length})
+      </h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Photo</th>
+            <th>Product / Brand</th>
+            <th>Variant</th>
+            <th>Barcode</th>
+            <th>Warning</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          ${productHtml}
+        </tbody>
+      </table>
+
+      <div class="footer">
+        © 2026 LabelLens. All rights reserved.
+        This report was generated from the LabelLens application.
+        Always check the physical package before consuming a product.
+      </div>
+    </body>
+  </html>
+`;
 
       if (Platform.OS === "web") {
-        await Print.printAsync({ html });
-
-        showMessage(
-          "PDF ready",
-          "Use the browser print window to save or share the PDF."
-        );
+        // This prints the generated HTML, not the current app page.
+        await printHtmlOnWeb(html);
       } else {
         const result = await Print.printToFileAsync({
           html,
@@ -690,7 +812,7 @@ export default function AvoidListScreen({
             UTI: "com.adobe.pdf",
           });
         } else {
-          showMessage(
+          message(
             "PDF created",
             "The PDF was created successfully."
           );
@@ -699,9 +821,11 @@ export default function AvoidListScreen({
 
       setShareVisible(false);
     } catch (pdfError: any) {
-      showMessage(
+      console.error("PDF error:", pdfError);
+
+      message(
         "Could not create PDF",
-        errorMessage(pdfError)
+        getErrorText(pdfError)
       );
     } finally {
       setCreatingPdf(false);
@@ -751,15 +875,15 @@ export default function AvoidListScreen({
 
           <TextInput
             style={styles.searchInput}
-            value={searchText}
-            onChangeText={setSearchText}
+            value={search}
+            onChangeText={setSearch}
             placeholder="Search your Avoid List"
             placeholderTextColor="#8A9B90"
           />
 
-          {searchText.length > 0 && (
+          {search.length > 0 && (
             <TouchableOpacity
-              onPress={() => setSearchText("")}
+              onPress={() => setSearch("")}
             >
               <Ionicons
                 name="close-circle"
@@ -841,8 +965,8 @@ export default function AvoidListScreen({
               ]}
               onPress={() => setDetailsItem(item)}
             >
-              <Photo
-                uri={displayPhoto(item.front_photo_url)}
+              <ProductImage
+                uri={getPhotoUrl(item.front_photo_url)}
                 style={styles.productPhoto}
               />
 
@@ -871,7 +995,7 @@ export default function AvoidListScreen({
                   />
 
                   <Text
-                    style={styles.warningBadgeText}
+                    style={styles.warningText}
                     numberOfLines={1}
                   >
                     {item.contains_text ||
@@ -881,7 +1005,7 @@ export default function AvoidListScreen({
                   </Text>
                 </View>
 
-                <Text style={styles.savedDate}>
+                <Text style={styles.savedText}>
                   Saved {formatDate(item.created_at)}
                 </Text>
               </View>
@@ -889,22 +1013,14 @@ export default function AvoidListScreen({
               <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={() => {
-                  void removeItem(item);
+                  void deleteItem(item);
                 }}
-                disabled={deletingId === item.id}
               >
-                {deletingId === item.id ? (
-                  <ActivityIndicator
-                    size="small"
-                    color="#D34A3A"
-                  />
-                ) : (
-                  <Ionicons
-                    name="trash-outline"
-                    size={20}
-                    color="#D34A3A"
-                  />
-                )}
+                <Ionicons
+                  name="trash-outline"
+                  size={20}
+                  color="#D34A3A"
+                />
               </TouchableOpacity>
             </Pressable>
           ))}
@@ -925,7 +1041,6 @@ export default function AvoidListScreen({
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Product details modal */}
       <Modal
         visible={detailsItem !== null}
         animationType="slide"
@@ -954,8 +1069,8 @@ export default function AvoidListScreen({
             <ScrollView
               contentContainerStyle={styles.detailContent}
             >
-              <Photo
-                uri={displayPhoto(
+              <ProductImage
+                uri={getPhotoUrl(
                   detailsItem.front_photo_url
                 )}
                 style={styles.detailPhoto}
@@ -1026,7 +1141,7 @@ export default function AvoidListScreen({
               <TouchableOpacity
                 style={styles.removeButton}
                 onPress={() => {
-                  void removeItem(detailsItem);
+                  void deleteItem(detailsItem);
                 }}
               >
                 <Ionicons
@@ -1044,7 +1159,6 @@ export default function AvoidListScreen({
         </SafeAreaView>
       </Modal>
 
-      {/* Share selection modal */}
       <Modal
         visible={shareVisible}
         transparent
@@ -1082,7 +1196,7 @@ export default function AvoidListScreen({
                 <TouchableOpacity
                   onPress={selectAll}
                 >
-                  <Text style={styles.selectionButtonText}>
+                  <Text style={styles.selectionText}>
                     Select all
                   </Text>
                 </TouchableOpacity>
@@ -1090,7 +1204,7 @@ export default function AvoidListScreen({
                 <TouchableOpacity
                   onPress={clearAll}
                 >
-                  <Text style={styles.selectionButtonText}>
+                  <Text style={styles.selectionText}>
                     Clear all
                   </Text>
                 </TouchableOpacity>
@@ -1126,20 +1240,20 @@ export default function AvoidListScreen({
                       )}
                     </View>
 
-                    <Photo
-                      uri={displayPhoto(
+                    <ProductImage
+                      uri={getPhotoUrl(
                         item.front_photo_url
                       )}
                       style={styles.modalPhoto}
                     />
 
                     <View>
-                      <Text style={styles.modalItemName}>
+                      <Text style={styles.modalName}>
                         {item.product_name ||
                           "Unnamed product"}
                       </Text>
 
-                      <Text style={styles.modalItemBrand}>
+                      <Text style={styles.modalBrand}>
                         {item.brand_name ||
                           "Brand unavailable"}
                       </Text>
@@ -1239,13 +1353,13 @@ const styles = StyleSheet.create({
 
   content: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 45,
   },
 
   titleRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 18,
   },
 
@@ -1272,7 +1386,6 @@ const styles = StyleSheet.create({
 
   shareText: {
     color: "#176B43",
-    fontSize: 13,
     fontWeight: "800",
     marginLeft: 5,
   },
@@ -1328,10 +1441,10 @@ const styles = StyleSheet.create({
 
   retryButton: {
     minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#258D4D",
     borderRadius: 9,
-    justifyContent: "center",
-    alignItems: "center",
     marginTop: 14,
   },
 
@@ -1341,8 +1454,8 @@ const styles = StyleSheet.create({
   },
 
   emptyBox: {
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
+    backgroundColor: "#FFFFFF",
     borderRadius: 14,
     padding: 25,
   },
@@ -1382,15 +1495,15 @@ const styles = StyleSheet.create({
     marginRight: 13,
   },
 
-  photoFrame: {
+  imageFrame: {
     overflow: "hidden",
     backgroundColor: "#EAF5ED",
   },
 
-  photoPlaceholder: {
-    backgroundColor: "#EAF5ED",
-    justifyContent: "center",
+  imagePlaceholder: {
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EAF5ED",
   },
 
   productInfo: {
@@ -1421,7 +1534,7 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
   },
 
-  warningBadgeText: {
+  warningText: {
     color: "#C0392B",
     fontSize: 11,
     fontWeight: "700",
@@ -1429,7 +1542,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
 
-  savedDate: {
+  savedText: {
     color: "#829487",
     fontSize: 12,
     marginTop: 6,
@@ -1438,18 +1551,18 @@ const styles = StyleSheet.create({
   deleteButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFF0F0",
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF0F0",
+    borderRadius: 20,
     marginLeft: 8,
   },
 
   scanButton: {
     minHeight: 50,
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#258D4D",
     borderRadius: 12,
     marginTop: 12,
@@ -1551,8 +1664,8 @@ const styles = StyleSheet.create({
   removeButton: {
     minHeight: 50,
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#FFF0F0",
     borderWidth: 1,
     borderColor: "#F3C6C0",
@@ -1582,8 +1695,8 @@ const styles = StyleSheet.create({
 
   modalHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
   },
 
   modalTitle: {
@@ -1601,8 +1714,8 @@ const styles = StyleSheet.create({
 
   selectionRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     borderBottomWidth: 1,
     borderBottomColor: "#E5ECE7",
     paddingBottom: 11,
@@ -1617,7 +1730,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
 
-  selectionButtonText: {
+  selectionText: {
     color: "#176B43",
     fontSize: 12,
     fontWeight: "800",
@@ -1637,11 +1750,11 @@ const styles = StyleSheet.create({
   checkbox: {
     width: 22,
     height: 22,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1.5,
     borderColor: "#AFC4B5",
     borderRadius: 6,
-    justifyContent: "center",
-    alignItems: "center",
   },
 
   checkedBox: {
@@ -1656,14 +1769,14 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
 
-  modalItemName: {
+  modalName: {
     color: "#1D3829",
     fontSize: 14,
     fontWeight: "800",
     marginLeft: 12,
   },
 
-  modalItemBrand: {
+  modalBrand: {
     color: "#63776B",
     fontSize: 12,
     marginLeft: 12,
@@ -1673,8 +1786,8 @@ const styles = StyleSheet.create({
   sharePdfButton: {
     minHeight: 50,
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#258D4D",
     borderRadius: 12,
     marginTop: 15,
