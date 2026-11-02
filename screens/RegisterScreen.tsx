@@ -1,5 +1,5 @@
-import { supabase } from "../lib/supabase";
 import { useState } from "react";
+
 import {
   Alert,
   Platform,
@@ -11,9 +11,10 @@ import {
   View,
 } from "react-native";
 
+import { supabase } from "../lib/supabase";
+
 export default function RegisterScreen({
   navigation,
-
 }: any) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -21,11 +22,19 @@ export default function RegisterScreen({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] =
     useState("");
+
+  const [showPassword, setShowPassword] =
+    useState(false);
+
+  const [showConfirmPassword, setShowConfirmPassword] =
+    useState(false);
+
   const [loading, setLoading] = useState(false);
 
- 
-
-  function showMessage(title: string, message: string) {
+  function showMessage(
+    title: string,
+    message: string
+  ) {
     if (Platform.OS === "web") {
       window.alert(`${title}\n\n${message}`);
     } else {
@@ -71,20 +80,22 @@ export default function RegisterScreen({
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: {
-          data: {
-            first_name: cleanFirstName,
-            last_name: cleanLastName,
-            full_name: `${cleanFirstName} ${cleanLastName}`,
-            privacy_accepted: true,
-            privacy_version: "1.0",
-            privacy_accepted_at: new Date().toISOString(),
+      const { data, error } =
+        await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            data: {
+              first_name: cleanFirstName,
+              last_name: cleanLastName,
+              full_name: `${cleanFirstName} ${cleanLastName}`,
+              privacy_accepted: true,
+              privacy_version: "1.0",
+              privacy_accepted_at:
+                new Date().toISOString(),
+            },
           },
-        },
-      });
+        });
 
       if (error) {
         showMessage(
@@ -95,10 +106,8 @@ export default function RegisterScreen({
       }
 
       if (data.session) {
-        // User is signed in immediately.
         navigation.replace("Preferences");
       } else {
-        // Email confirmation is enabled.
         showMessage(
           "Verify your email",
           "We sent a verification link to your email address."
@@ -106,10 +115,11 @@ export default function RegisterScreen({
 
         navigation.replace("Login");
       }
-    } catch {
+    } catch (error: any) {
       showMessage(
         "Connection problem",
-        "Could not create your account. Please try again."
+        error?.message ||
+          "Could not create your account. Please try again."
       );
     } finally {
       setLoading(false);
@@ -122,63 +132,116 @@ export default function RegisterScreen({
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.content}>
-        <Text style={styles.title}>Get started</Text>
+        <Text style={styles.title}>
+          Get started
+        </Text>
 
         <Text style={styles.subtitle}>
           Create your free LabelLens account
         </Text>
 
-        <Text style={styles.label}>First Name</Text>
+        <Text style={styles.label}>
+          First Name
+        </Text>
 
         <TextInput
           style={styles.input}
           value={firstName}
           onChangeText={setFirstName}
           placeholder="Your first name"
+          placeholderTextColor="#AAB8AE"
           autoCapitalize="words"
+          autoCorrect={false}
         />
 
-        <Text style={styles.label}>Last Name</Text>
+        <Text style={styles.label}>
+          Last Name
+        </Text>
 
         <TextInput
           style={styles.input}
           value={lastName}
           onChangeText={setLastName}
           placeholder="Your last name"
+          placeholderTextColor="#AAB8AE"
           autoCapitalize="words"
+          autoCorrect={false}
         />
 
-        <Text style={styles.label}>Email</Text>
+        <Text style={styles.label}>
+          Email
+        </Text>
 
         <TextInput
           style={styles.input}
           value={email}
           onChangeText={setEmail}
           placeholder="you@example.com"
+          placeholderTextColor="#AAB8AE"
           keyboardType="email-address"
           autoCapitalize="none"
           autoCorrect={false}
         />
 
-        <Text style={styles.label}>Password</Text>
+        <Text style={styles.label}>
+          Password
+        </Text>
 
-        <TextInput
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          placeholder="At least 8 characters"
-          secureTextEntry
-        />
+        <View style={styles.passwordContainer}>
+          <TextInput
+            style={styles.passwordInput}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="At least 8 characters"
+            placeholderTextColor="#AAB8AE"
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
 
-        <Text style={styles.label}>Confirm Password</Text>
+          <TouchableOpacity
+            style={styles.showButton}
+            onPress={() =>
+              setShowPassword((current) => !current)
+            }
+            activeOpacity={0.8}
+          >
+            <Text style={styles.showButtonText}>
+              {showPassword ? "Hide" : "Show"}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-        <TextInput
-          style={styles.input}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          placeholder="Enter your password again"
-          secureTextEntry
-        />
+        <Text style={styles.label}>
+          Confirm Password
+        </Text>
+
+        <View style={styles.passwordContainer}>
+          <TextInput
+            style={styles.passwordInput}
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder="Enter your password again"
+            placeholderTextColor="#AAB8AE"
+            secureTextEntry={!showConfirmPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TouchableOpacity
+            style={styles.showButton}
+            onPress={() =>
+              setShowConfirmPassword(
+                (current) => !current
+              )
+            }
+            activeOpacity={0.8}
+          >
+            <Text style={styles.showButtonText}>
+              {showConfirmPassword ? "Hide" : "Show"}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={[
@@ -187,15 +250,21 @@ export default function RegisterScreen({
           ]}
           onPress={createAccount}
           disabled={loading}
+          activeOpacity={0.8}
         >
           <Text style={styles.buttonText}>
-            {loading ? "Creating account..." : "Continue"}
+            {loading
+              ? "Creating account..."
+              : "Continue"}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.loginLinkButton}
-          onPress={() => navigation.replace("Login")}
+          onPress={() =>
+            navigation.replace("Login")
+          }
+          activeOpacity={0.8}
         >
           <Text style={styles.loginLinkText}>
             Already have an account?{" "}
@@ -253,6 +322,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#1D3829",
     marginBottom: 15,
+  },
+
+  passwordContainer: {
+    position: "relative",
+    marginBottom: 15,
+  },
+
+  passwordInput: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: "#DCE5DE",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingRight: 68,
+    fontSize: 14,
+    color: "#1D3829",
+  },
+
+  showButton: {
+    position: "absolute",
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+  },
+
+  showButtonText: {
+    color: "#197640",
+    fontSize: 13,
+    fontWeight: "700",
   },
 
   button: {

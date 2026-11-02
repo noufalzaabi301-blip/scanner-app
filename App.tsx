@@ -1,21 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-
-import {
-  Alert,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-
-import { supabase } from "./lib/supabase";
+import {
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import PrivacyNoticeScreen from "./screens/PrivacyNoticeScreen";
 import PreferencesScreen from "./screens/PreferencesScreen";
@@ -27,23 +18,9 @@ import HomeScreen from "./screens/HomeScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
-import ContactUsScreen from "./screens/ContactUsScreen";
-import FAQsScreen from "./screens/FAQsScreen";
-import AboutLabelLensScreen from "./screens/AboutLabelLensScreen";
 import AvoidListScreen from "./screens/AvoidListScreen";
-
-type ProductResult = {
-  barcode: string | null;
-  brand: string;
-  productName: string;
-  variant: string;
-  ingredients: string;
-  contains: string;
-  mayContain: string;
-  frontPhotoUri?: string | null;
-  ingredientsPhotoUri?: string | null;
-  source?: string;
-};
+import FAQsScreen from "./screens/FAQsScreen";
+import ContactUsScreen from "./screens/ContactUsScreen";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -73,191 +50,41 @@ export type RootStackParamList = {
     | undefined;
 
   Home: undefined;
+  Avoid: undefined;
   Profile: undefined;
   ProfileSettings: undefined;
-  ContactUs: undefined;
   FAQs: undefined;
+  ContactUs: undefined;
   AboutLabelLens: undefined;
-  Avoid: undefined;
-
-  AnalysisResults: {
-    product: ProductResult;
-  };
 };
 
 const Stack =
   createNativeStackNavigator<RootStackParamList>();
 
-function showMessage(title: string, message: string) {
-  if (Platform.OS === "web") {
-    window.alert(`${title}\n\n${message}`);
-  } else {
-    Alert.alert(title, message);
-  }
-}
-
-function AnalysisResultsScreen({
-  route,
-}: any) {
-  const { product } = route.params as {
-    product: ProductResult;
-  };
-
-  const scrollRef = useRef<ScrollView>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({
-        y: 0,
-        animated: false,
-      });
-    });
-  }, []);
-
-  async function addToAvoidList() {
-    if (saving || saved) {
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        showMessage(
-          "Login required",
-          "Please log in before saving products."
-        );
-        return;
-      }
-
-      const { error } = await supabase
-        .from("avoid_list")
-        .insert({
-          user_id: user.id,
-          barcode: product.barcode || null,
-          product_name: product.productName || "",
-          brand_name: product.brand || "",
-          variant: product.variant || "",
-          ingredients_text: product.ingredients || "",
-          contains_text: product.contains || "",
-          may_contain_text: product.mayContain || "",
-          save_reason:
-            product.contains ||
-            product.mayContain ||
-            "Saved from product analysis",
-          source: product.source || "LabelLens",
-        });
-
-      if (error) {
-        throw error;
-      }
-
-      setSaved(true);
-
-      showMessage(
-        "Added successfully",
-        "This product was added to your Avoid List."
-      );
-    } catch (error: any) {
-      console.error("Avoid List insert error:", error);
-
-      showMessage(
-        "Could not add product",
-        error?.message ||
-          "The product could not be added. Please try again."
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
+function AboutLabelLensScreen() {
   return (
-    <SafeAreaView style={styles.page}>
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={true}
-      >
-        <Text style={styles.title}>
-          Product analysis
+    <SafeAreaView style={styles.aboutPage}>
+      <View style={styles.aboutContent}>
+        <Text style={styles.aboutTitle}>
+          About LabelLens
         </Text>
 
-        <Text style={styles.subtitle}>
-          Review the screening result before saving this
-          product.
+        <Text style={styles.aboutText}>
+          LabelLens helps users review food products
+          against their allergy and halal preferences.
         </Text>
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Brand</Text>
-          <Text style={styles.value}>
-            {product.brand || "Not available"}
-          </Text>
-
-          <Text style={styles.label}>Product</Text>
-          <Text style={styles.value}>
-            {product.productName || "Not available"}
-          </Text>
-
-          {product.variant ? (
-            <>
-              <Text style={styles.label}>Variant</Text>
-              <Text style={styles.value}>
-                {product.variant}
-              </Text>
-            </>
-          ) : null}
-
-          <Text style={styles.label}>Ingredients</Text>
-          <Text style={styles.value}>
-            {product.ingredients || "Not available"}
-          </Text>
-
-          <Text style={styles.label}>Contains</Text>
-          <Text style={styles.value}>
-            {product.contains || "None detected"}
-          </Text>
-
-          <Text style={styles.label}>May contain</Text>
-          <Text style={styles.value}>
-            {product.mayContain || "None detected"}
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          style={[
-            styles.avoidButton,
-            saved && styles.savedButton,
-          ]}
-          onPress={addToAvoidList}
-          disabled={saving || saved}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.avoidButtonText}>
-            {saving
-              ? "Adding..."
-              : saved
-                ? "Added to My Avoid List"
-                : "Add to My Avoid List"}
-          </Text>
-        </TouchableOpacity>
-
-        <Text style={styles.warning}>
-          LabelLens is a screening tool. Always check the
-          physical package and official certification.
+        <Text style={styles.aboutVersion}>
+          Version 1.0.0
         </Text>
-      </ScrollView>
+
+        <Text style={styles.aboutNotice}>
+          LabelLens provides screening support only.
+          Always check the physical product package.
+        </Text>
+      </View>
     </SafeAreaView>
   );
-}
-
-function AnalysisResultsPlaceholder() {
-  return null;
 }
 
 export default function App() {
@@ -341,37 +168,11 @@ export default function App() {
           />
 
           <Stack.Screen
-  name="ContactUs"
-  component={ContactUsScreen}
-  options={{ title: "Contact Us" }}
-/>
-
-<Stack.Screen
-  name="FAQs"
-  component={FAQsScreen}
-  options={{ title: "FAQs" }}
-/>
-
-<Stack.Screen
-  name="AboutLabelLens"
-  component={AboutLabelLensScreen}
-  options={{ title: "About LabelLens" }}
-/>
-
-          <Stack.Screen
             name="Home"
             component={HomeScreen}
             options={{
               title: "LabelLens",
               headerBackVisible: false,
-            }}
-          />
-
-          <Stack.Screen
-            name="AnalysisResults"
-            component={AnalysisResultsScreen}
-            options={{
-              title: "Analysis Results",
             }}
           />
 
@@ -398,6 +199,30 @@ export default function App() {
               title: "Profile settings",
             }}
           />
+
+          <Stack.Screen
+            name="FAQs"
+            component={FAQsScreen}
+            options={{
+              title: "FAQs",
+            }}
+          />
+
+          <Stack.Screen
+            name="ContactUs"
+            component={ContactUsScreen}
+            options={{
+              title: "Contact Us",
+            }}
+          />
+
+          <Stack.Screen
+            name="AboutLabelLens"
+            component={AboutLabelLensScreen}
+            options={{
+              title: "About LabelLens",
+            }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
@@ -405,74 +230,38 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  page: {
+  aboutPage: {
     flex: 1,
     backgroundColor: "#F8FBF8",
   },
 
-  content: {
-    padding: 20,
-    paddingBottom: 45,
+  aboutContent: {
+    padding: 22,
   },
 
-  title: {
+  aboutTitle: {
     color: "#176B43",
-    fontSize: 27,
+    fontSize: 25,
     fontWeight: "800",
-    marginBottom: 8,
+    marginBottom: 15,
   },
 
-  subtitle: {
-    color: "#63776B",
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 20,
+  aboutText: {
+    color: "#1D3829",
+    fontSize: 15,
+    lineHeight: 23,
   },
 
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 18,
-  },
-
-  label: {
+  aboutVersion: {
     color: "#63776B",
     fontSize: 13,
-    fontWeight: "700",
-    marginTop: 13,
-    marginBottom: 5,
+    marginTop: 20,
   },
 
-  value: {
-    color: "#1D3829",
-    fontSize: 14,
-    lineHeight: 21,
-  },
-
-  avoidButton: {
-    minHeight: 52,
-    borderRadius: 13,
-    backgroundColor: "#258D4D",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 22,
-  },
-
-  savedButton: {
-    backgroundColor: "#176B43",
-  },
-
-  avoidButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-
-  warning: {
+  aboutNotice: {
     color: "#63776B",
     fontSize: 12,
     lineHeight: 18,
-    textAlign: "center",
-    marginTop: 20,
+    marginTop: 30,
   },
 });

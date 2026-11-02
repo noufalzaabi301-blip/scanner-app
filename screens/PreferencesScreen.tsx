@@ -1,10 +1,8 @@
-// React hooks used by the preferences form.
 import { useCallback, useState } from "react";
+import ProductSubmissionPreference from "../components/ProductSubmissionPreference";
 
-// Reloads saved preferences whenever this screen opens.
 import { useFocusEffect } from "@react-navigation/native";
 
-// React Native components used by this screen.
 import {
   ActivityIndicator,
   Alert,
@@ -17,10 +15,8 @@ import {
   View,
 } from "react-native";
 
-// Supabase client for the user database.
 import { supabase } from "../lib/supabase";
 
-// Standard allergies used during first-time setup.
 const ALLERGY_OPTIONS = [
   "Milk",
   "Eggs",
@@ -33,7 +29,6 @@ const ALLERGY_OPTIONS = [
   "Sesame",
 ];
 
-// Shape of the saved preferences row.
 type SavedPreferences = {
   prefers_halal: boolean | null;
   has_allergies: boolean | null;
@@ -41,7 +36,6 @@ type SavedPreferences = {
   other_allergy: string | null;
 };
 
-// Converts the saved custom-allergy text into multiple values.
 function splitCustomAllergies(
   value: string
 ): string[] {
@@ -59,34 +53,28 @@ export default function PreferencesScreen({
   navigation,
   route,
 }: any) {
-  // Edit mode is opened from the Home allergy banner.
   const isEditMode =
     route?.params?.mode === "edit";
 
-  // Stores the halal preference.
   const [prefersHalal, setPrefersHalal] =
     useState<boolean | null>(null);
 
-  // Stores whether the user has allergies.
   const [hasAllergies, setHasAllergies] =
     useState<boolean | null>(null);
 
-  // Stores selected standard allergies.
   const [selectedAllergies, setSelectedAllergies] =
     useState<string[]>([]);
 
-  // Stores allergies not included in the standard list.
   const [customAllergies, setCustomAllergies] =
     useState<string[]>([]);
 
-  // Stores the current allergy being added.
-  const [customInput, setCustomInput] = useState("");
+  const [customInput, setCustomInput] =
+    useState("");
 
-  // Loading states.
   const [loading, setLoading] = useState(false);
-  const [loadingSaved, setLoadingSaved] = useState(true);
+  const [loadingSaved, setLoadingSaved] =
+    useState(true);
 
-  // Shows messages on web and mobile.
   function showMessage(
     title: string,
     message: string
@@ -98,13 +86,11 @@ export default function PreferencesScreen({
     }
   }
 
-  // Loads the saved preferences from Supabase.
   const loadSavedPreferences = useCallback(
     async () => {
       setLoadingSaved(true);
 
       try {
-        // Get the currently signed-in user.
         const {
           data: { user },
         } = await supabase.auth.getUser();
@@ -113,7 +99,6 @@ export default function PreferencesScreen({
           return;
         }
 
-        // Load the user's preferences.
         const { data, error } = await supabase
           .from("user_preferences")
           .select(
@@ -122,27 +107,29 @@ export default function PreferencesScreen({
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (error || !data) {
-          console.warn(
-            "Could not load preferences:",
-            error?.message
-          );
+        if (error) {
+          throw error;
+        }
+
+        if (!data) {
           return;
         }
 
-        const saved = data as SavedPreferences;
+        const saved =
+          data as SavedPreferences;
 
-        // Read standard allergies from the text[] column.
         const standardAllergies =
           Array.isArray(saved.allergies)
-            ? saved.allergies.filter(
-                (item): item is string =>
-                  typeof item === "string"
-              )
+            ? saved.allergies
+                .filter(
+                  (item): item is string =>
+                    typeof item === "string"
+                )
+                .map((item) => item.trim())
+                .filter(Boolean)
             : [];
 
-        // Read multiple custom allergies from the text column.
-        const customAllergies =
+        const savedCustomAllergies =
           typeof saved.other_allergy === "string"
             ? splitCustomAllergies(
                 saved.other_allergy
@@ -159,13 +146,19 @@ export default function PreferencesScreen({
           typeof saved.has_allergies === "boolean"
             ? saved.has_allergies
             : standardAllergies.length > 0 ||
-              customAllergies.length > 0
+              savedCustomAllergies.length > 0
         );
 
-        setSelectedAllergies(standardAllergies);
-        setCustomAllergies(customAllergies);
+        setSelectedAllergies(
+          standardAllergies
+        );
+
+        setCustomAllergies(
+          savedCustomAllergies
+        );
+
         setCustomInput("");
-      } catch (error) {
+      } catch (error: any) {
         console.warn(
           "Could not load preferences:",
           error
@@ -177,15 +170,31 @@ export default function PreferencesScreen({
     []
   );
 
-  // Reload saved preferences every time this screen opens.
   useFocusEffect(
     useCallback(() => {
       void loadSavedPreferences();
     }, [loadSavedPreferences])
   );
 
-  // Adds or removes a standard allergy during setup.
-  function toggleAllergy(allergy: string) {
+  function selectHalal(value: boolean) {
+    setPrefersHalal(value);
+  }
+
+  function selectAllergyAnswer(
+    value: boolean
+  ) {
+    setHasAllergies(value);
+
+    if (!value) {
+      setSelectedAllergies([]);
+      setCustomAllergies([]);
+      setCustomInput("");
+    }
+  }
+
+  function toggleStandardAllergy(
+    allergy: string
+  ) {
     setSelectedAllergies((current) => {
       if (current.includes(allergy)) {
         return current.filter(
@@ -197,18 +206,16 @@ export default function PreferencesScreen({
     });
   }
 
-  // Adds either a standard or custom allergy.
-  function addAllergy() {
+  function addCustomAllergy() {
     const value = customInput.trim();
 
     if (!value) {
+      showMessage(
+        "Enter an allergy",
+        "Please type an allergy before pressing Add."
+      );
       return;
     }
-
-    const standardMatch = ALLERGY_OPTIONS.find(
-      (allergy) =>
-        allergy.toLowerCase() === value.toLowerCase()
-    );
 
     const alreadyExists = [
       ...selectedAllergies,
@@ -226,14 +233,18 @@ export default function PreferencesScreen({
       return;
     }
 
-    // Save known allergies in the standard allergy array.
+    const standardMatch =
+      ALLERGY_OPTIONS.find(
+        (item) =>
+          item.toLowerCase() === value.toLowerCase()
+      );
+
     if (standardMatch) {
       setSelectedAllergies((current) => [
         ...current,
         standardMatch,
       ]);
     } else {
-      // Save unknown allergies in the custom allergy list.
       setCustomAllergies((current) => [
         ...current,
         value,
@@ -244,7 +255,6 @@ export default function PreferencesScreen({
     setCustomInput("");
   }
 
-  // Deletes any allergy while editing.
   function removeAllergy(allergy: string) {
     setSelectedAllergies((current) =>
       current.filter((item) => item !== allergy)
@@ -255,26 +265,11 @@ export default function PreferencesScreen({
     );
   }
 
-  // Handles the Yes/No allergy answer.
-  function selectAllergyAnswer(
-    answer: boolean
-  ) {
-    setHasAllergies(answer);
-
-    // Clear all allergy values when No is selected.
-    if (!answer) {
-      setSelectedAllergies([]);
-      setCustomAllergies([]);
-      setCustomInput("");
-    }
-  }
-
-  // Saves the preferences to Supabase.
   async function savePreferences() {
     if (prefersHalal === null) {
       showMessage(
         "Choose a food preference",
-        "Tell us whether you prefer halal food."
+        "Please choose whether you prefer halal food."
       );
       return;
     }
@@ -282,7 +277,7 @@ export default function PreferencesScreen({
     if (hasAllergies === null) {
       showMessage(
         "Choose an allergy option",
-        "Tell us whether you have food allergies."
+        "Please choose Yes or No."
       );
       return;
     }
@@ -302,13 +297,16 @@ export default function PreferencesScreen({
     setLoading(true);
 
     try {
-      // Confirm that the user is signed in.
       const {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError || !user) {
+      if (userError) {
+        throw userError;
+      }
+
+      if (!user) {
         showMessage(
           "Session expired",
           "Please log in again."
@@ -318,7 +316,6 @@ export default function PreferencesScreen({
         return;
       }
 
-      // Save standard and custom allergies.
       const { error } = await supabase
         .from("user_preferences")
         .upsert(
@@ -326,21 +323,16 @@ export default function PreferencesScreen({
             user_id: user.id,
             prefers_halal: prefersHalal,
             has_allergies: hasAllergies,
-
-            // Standard allergies are saved in the text[] column.
             allergies: hasAllergies
               ? selectedAllergies
               : [],
-
-            // Custom allergies are stored as comma-separated text
-            // because the existing database uses one text column.
             other_allergy:
               hasAllergies &&
               customAllergies.length > 0
                 ? customAllergies.join(", ")
                 : null,
-
-            updated_at: new Date().toISOString(),
+            updated_at:
+              new Date().toISOString(),
           },
           {
             onConflict: "user_id",
@@ -348,67 +340,53 @@ export default function PreferencesScreen({
         );
 
       if (error) {
-        showMessage(
-          "Could not save preferences",
-          error.message
-        );
-        return;
+        throw error;
       }
-
-      // Edit mode returns to Home.
-      if (
-        isEditMode &&
-        navigation.canGoBack()
-      ) {
-        navigation.goBack();
-      } else {
-        // First-time setup continues to Home.
-        navigation.replace("Home");
-      }
-    } catch (error) {
-      console.warn(
-        "Could not save preferences:",
-        error
-      );
 
       showMessage(
-        "Connection problem",
-        "Could not save your preferences."
+        "Saved successfully",
+        "Your allergy and halal preferences were updated."
+      );
+
+      if (isEditMode) {
+        navigation.goBack();
+      } else {
+        navigation.replace("Home");
+      }
+    } catch (error: any) {
+      showMessage(
+        "Could not save preferences",
+        error?.message ||
+          "Please try again."
       );
     } finally {
       setLoading(false);
     }
   }
 
+  const allCurrentAllergies = [
+    ...selectedAllergies,
+    ...customAllergies,
+  ];
+
   return (
     <ScrollView
       contentContainerStyle={styles.page}
       keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
     >
-      <View style={styles.card}>
-        {/* Title changes between setup and edit mode. */}
+      <View style={styles.content}>
         <Text style={styles.title}>
           {isEditMode
-            ? "Edit your preferences"
-            : "Personalize LabelLens"}
+            ? "Edit preferences"
+            : "Your preferences"}
         </Text>
 
-        {/* Shows while saved values are loading. */}
-        {loadingSaved && (
-          <ActivityIndicator
-            color="#176B43"
-            style={styles.loading}
-          />
-        )}
-
-        {/* Explains the purpose of the preferences. */}
-        <Text style={styles.description}>
-          These preferences help LabelLens highlight
-          relevant product information. Always verify
-          the package label before consuming a product.
+        <Text style={styles.subtitle}>
+          Tell us about your food preferences so LabelLens
+          can screen products for you.
         </Text>
 
-        {/* Halal preference question. */}
         <Text style={styles.question}>
           Do you prefer halal food?
         </Text>
@@ -420,7 +398,7 @@ export default function PreferencesScreen({
               prefersHalal === true &&
                 styles.selectedAnswer,
             ]}
-            onPress={() => setPrefersHalal(true)}
+            onPress={() => selectHalal(true)}
           >
             <Text
               style={[
@@ -439,7 +417,7 @@ export default function PreferencesScreen({
               prefersHalal === false &&
                 styles.selectedAnswer,
             ]}
-            onPress={() => setPrefersHalal(false)}
+            onPress={() => selectHalal(false)}
           >
             <Text
               style={[
@@ -453,7 +431,6 @@ export default function PreferencesScreen({
           </TouchableOpacity>
         </View>
 
-        {/* Allergy preference question. */}
         <Text style={styles.question}>
           Do you have any food allergies?
         </Text>
@@ -502,7 +479,6 @@ export default function PreferencesScreen({
           </TouchableOpacity>
         </View>
 
-        {/* Allergy content appears after Yes is selected. */}
         {hasAllergies === true && (
           <View style={styles.allergySection}>
             <Text style={styles.sectionTitle}>
@@ -511,108 +487,121 @@ export default function PreferencesScreen({
                 : "Select all that apply"}
             </Text>
 
-            {isEditMode ? (
-              <>
-                {/* Edit mode shows only saved allergies. */}
-                {[
-                  ...selectedAllergies,
-                  ...customAllergies,
-                ].length === 0 ? (
-                  <Text style={styles.emptyText}>
-                    No allergies added yet.
-                  </Text>
-                ) : (
-                  [
-                    ...selectedAllergies,
-                    ...customAllergies,
-                  ].map((allergy) => (
+            {!isEditMode &&
+              ALLERGY_OPTIONS.map((allergy) => {
+                const selected =
+                  selectedAllergies.includes(
+                    allergy
+                  );
+
+                return (
+                  <TouchableOpacity
+                    key={allergy}
+                    style={styles.checkboxRow}
+                    onPress={() =>
+                      toggleStandardAllergy(
+                        allergy
+                      )
+                    }
+                  >
                     <View
-                      key={`edit-${allergy}`}
-                      style={styles.editAllergyRow}
+                      style={[
+                        styles.checkbox,
+                        selected &&
+                          styles.checkedBox,
+                      ]}
                     >
-                      <Text
-                        style={styles.editAllergyText}
-                      >
-                        {allergy}
-                      </Text>
-
-                      {/* Every saved allergy can be deleted. */}
-                      <TouchableOpacity
-                        style={styles.deleteButton}
-                        onPress={() =>
-                          removeAllergy(allergy)
-                        }
-                        accessibilityLabel={`Delete ${allergy}`}
-                      >
-                        <Text style={styles.deleteIcon}>
-                          🗑
+                      {selected && (
+                        <Text
+                          style={styles.checkmark}
+                        >
+                          ✓
                         </Text>
-                      </TouchableOpacity>
+                      )}
                     </View>
-                  ))
-                )}
-              </>
-            ) : (
-              <>
-                {/* First-time setup uses checkboxes. */}
-                {ALLERGY_OPTIONS.map((allergy) => {
-                  const selected =
-                    selectedAllergies.includes(
-                      allergy
-                    );
 
-                  return (
-                    <TouchableOpacity
-                      key={allergy}
-                      style={styles.checkboxRow}
-                      onPress={() =>
-                        toggleAllergy(allergy)
-                      }
+                    <Text
+                      style={styles.checkboxLabel}
                     >
-                      <View
-                        style={[
-                          styles.checkbox,
-                          selected &&
-                            styles.checkedBox,
-                        ]}
-                      >
-                        {selected && (
-                          <Text
-                            style={styles.checkmark}
-                          >
-                            ✓
-                          </Text>
-                        )}
-                      </View>
+                      {allergy}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
 
-                      <Text
-                        style={styles.checkboxLabel}
-                      >
-                        {allergy}
+            {isEditMode &&
+              allCurrentAllergies.map(
+                (allergy) => (
+                  <View
+                    key={`saved-${allergy}`}
+                    style={styles.allergyRow}
+                  >
+                    <Text
+                      style={styles.allergyRowText}
+                    >
+                      {allergy}
+                    </Text>
+
+                    <TouchableOpacity
+                      onPress={() =>
+                        removeAllergy(allergy)
+                      }
+                      accessibilityLabel={`Delete ${allergy}`}
+                    >
+                      <Text style={styles.deleteText}>
+                        🗑
                       </Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </>
-            )}
+                  </View>
+                )
+              )}
 
-            {/* Adds a standard or custom allergy. */}
+            {!isEditMode &&
+              customAllergies.map(
+                (allergy) => (
+                  <View
+                    key={`custom-${allergy}`}
+                    style={styles.allergyRow}
+                  >
+                    <Text
+                      style={styles.allergyRowText}
+                    >
+                      {allergy}
+                    </Text>
+
+                    <TouchableOpacity
+                      onPress={() =>
+                        removeAllergy(allergy)
+                      }
+                      accessibilityLabel={`Delete ${allergy}`}
+                    >
+                      <Text style={styles.deleteText}>
+                        🗑
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )
+              )}
+
             <Text style={styles.otherLabel}>
               Add an allergy
             </Text>
 
             <View style={styles.customInputRow}>
               <TextInput
-                style={styles.input}
+                style={styles.customInput}
                 value={customInput}
                 onChangeText={setCustomInput}
-                placeholder="e.g. Coconut or Milk"
+                placeholder="e.g. Coconut or Sugar"
                 placeholderTextColor="#9AA9A0"
+                onSubmitEditing={
+                  addCustomAllergy
+                }
               />
 
               <TouchableOpacity
                 style={styles.addButton}
-                onPress={addAllergy}
+                onPress={addCustomAllergy}
               >
                 <Text style={styles.addButtonText}>
                   Add
@@ -622,7 +611,6 @@ export default function PreferencesScreen({
           </View>
         )}
 
-        {/* Saves the preferences. */}
         <TouchableOpacity
           style={[
             styles.saveButton,
@@ -632,7 +620,7 @@ export default function PreferencesScreen({
           onPress={savePreferences}
           disabled={loading || loadingSaved}
         >
-          {loading ? (
+          {loading || loadingSaved ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text style={styles.saveButtonText}>
@@ -643,79 +631,76 @@ export default function PreferencesScreen({
           )}
         </TouchableOpacity>
 
-        {/* Safety reminder. */}
         <Text style={styles.warning}>
           LabelLens provides screening information and
-          cannot guarantee that a product is safe for a
-          particular allergy.
+          cannot guarantee that a product is safe.
         </Text>
       </View>
     </ScrollView>
   );
 }
 
-// Styles used by the preferences screen.
 const styles = StyleSheet.create({
   page: {
     flexGrow: 1,
-    backgroundColor: "#F1F7F3",
+    backgroundColor: "#F8FBF8",
     alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
   },
 
-  card: {
+  content: {
     width: "100%",
-    maxWidth: 520,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 30,
+    maxWidth: 420,
   },
 
   title: {
-    color: "#17452F",
-    fontSize: 28,
-    fontWeight: "bold",
-    textAlign: "center",
+    color: "#176B43",
+    fontSize: 25,
+    fontWeight: "800",
+    marginBottom: 7,
   },
 
-  description: {
-    color: "#68766F",
+  subtitle: {
+    color: "#63776B",
+    fontSize: 14,
     lineHeight: 21,
-    textAlign: "center",
-    marginTop: 10,
-    marginBottom: 28,
+    marginBottom: 24,
   },
 
   question: {
-    color: "#263E32",
-    fontSize: 17,
-    fontWeight: "700",
-    marginTop: 18,
-    marginBottom: 12,
+    color: "#163D2A",
+    fontSize: 15,
+    fontWeight: "800",
+    marginTop: 13,
+    marginBottom: 9,
   },
 
   answerRow: {
     flexDirection: "row",
+    gap: 9,
+    marginBottom: 12,
   },
 
   answerButton: {
     flex: 1,
-    borderColor: "#B9CCC1",
+    minHeight: 46,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 13,
+    borderColor: "#B8CDBE",
+    borderRadius: 10,
+    justifyContent: "center",
     alignItems: "center",
-    marginHorizontal: 5,
+    backgroundColor: "#FFFFFF",
   },
 
   selectedAnswer: {
-    backgroundColor: "#176B43",
-    borderColor: "#176B43",
+    backgroundColor: "#197640",
+    borderColor: "#197640",
   },
 
   answerText: {
     color: "#176B43",
+    fontSize: 14,
     fontWeight: "700",
   },
 
@@ -724,127 +709,119 @@ const styles = StyleSheet.create({
   },
 
   allergySection: {
-    marginTop: 24,
+    marginTop: 5,
   },
 
   sectionTitle: {
-    color: "#263E32",
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 12,
+    color: "#163D2A",
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 10,
   },
 
   checkboxRow: {
     minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
   },
 
   checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 2,
-    borderColor: "#93AA9D",
+    width: 20,
+    height: 20,
+    borderWidth: 1,
+    borderColor: "#AFC4B5",
     borderRadius: 5,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginRight: 10,
   },
 
   checkedBox: {
-    backgroundColor: "#176B43",
-    borderColor: "#176B43",
+    backgroundColor: "#197640",
+    borderColor: "#197640",
   },
 
   checkmark: {
     color: "#FFFFFF",
-    fontWeight: "bold",
+    fontSize: 14,
+    fontWeight: "800",
   },
 
   checkboxLabel: {
-    color: "#263E32",
-    fontSize: 16,
+    color: "#1D3829",
+    fontSize: 14,
   },
 
-  editAllergyRow: {
-    minHeight: 44,
+  allergyRow: {
+    minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E3ECE6",
-    paddingVertical: 9,
-  },
-
-  editAllergyText: {
-    color: "#263E32",
-    fontSize: 16,
-  },
-
-  emptyText: {
-    color: "#68766F",
-    fontSize: 14,
+    backgroundColor: "#EEF7E7",
+    borderRadius: 9,
+    paddingHorizontal: 12,
     marginBottom: 8,
   },
 
-  deleteButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
+  allergyRowText: {
+    color: "#315D35",
+    fontSize: 14,
+    fontWeight: "600",
   },
 
-  deleteIcon: {
-    color: "#B3261E",
+  deleteText: {
+    color: "#C0392B",
     fontSize: 18,
   },
 
   otherLabel: {
-    color: "#263E32",
-    fontWeight: "600",
-    marginTop: 18,
+    color: "#264C37",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 14,
     marginBottom: 7,
   },
 
   customInputRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 8,
   },
 
-  input: {
+  customInput: {
     flex: 1,
-    borderColor: "#C9D8CF",
+    minHeight: 46,
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    color: "#263E32",
+    borderColor: "#B8CDBE",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 13,
+    color: "#1D3829",
+    fontSize: 14,
   },
 
   addButton: {
-    backgroundColor: "#176B43",
-    borderRadius: 12,
-    paddingVertical: 14,
+    minHeight: 46,
     paddingHorizontal: 16,
-    marginLeft: 8,
+    borderRadius: 10,
+    backgroundColor: "#197640",
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   addButtonText: {
     color: "#FFFFFF",
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "800",
   },
 
   saveButton: {
-    backgroundColor: "#176B43",
+    minHeight: 50,
     borderRadius: 12,
-    padding: 15,
+    backgroundColor: "#197640",
+    justifyContent: "center",
     alignItems: "center",
-    marginTop: 30,
-  },
-
-  loading: {
-    marginTop: 12,
+    marginTop: 25,
   },
 
   disabledButton: {
@@ -853,14 +830,14 @@ const styles = StyleSheet.create({
 
   saveButtonText: {
     color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: 14,
+    fontWeight: "800",
   },
 
   warning: {
-    color: "#7A6251",
-    fontSize: 12,
-    lineHeight: 18,
+    color: "#8A5A50",
+    fontSize: 11,
+    lineHeight: 16,
     textAlign: "center",
     marginTop: 18,
   },

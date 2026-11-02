@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // screens/HomeScreen.tsx
 // Workflow: home -> barcode -> lookup -> ingredient photo -> front photo
-//           -> AI extraction -> review -> allergy + halal results
+//           -> AI extraction -> (review only if needed) -> allergy + halal results
 // ---------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,6 +19,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -26,9 +27,11 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 
+import BottomNavigation from "../components/BottomNavigation";
 import { supabase } from "../lib/supabase";
 import { extractLabelFromPhotos } from "../lib/labelExtraction";
 import { cleanBarcode, isValidBarcode } from "../lib/barcode";
@@ -42,14 +45,16 @@ import {
   internalProvider,
   openFoodFactsProvider,
 } from "../lib/productProviders";
+import { submitProductForReview } from "../lib/productSubmission";
 import {
   ITEM_SEPARATORS,
   applyIngredientCorrections,
-  normalizeText,
+  isIngredientHighlighted,
   parseUncertainIngredients,
   screenProduct,
   splitTopLevel,
   type Level,
+  type MatchType,
   type ScreeningData,
   type ScreeningSection,
   type UncertainIngredient,
@@ -99,6 +104,11 @@ const NOT_FOUND_MESSAGE =
 const EXTRACTION_TIMEOUT_MS = 90000; // AI extraction can never hang forever
 const SOURCE_PHOTO = "AI package-photo extraction";
 
+// Zoom viewer limits.
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+const ZOOM_STEP = 0.5;
+
 // The stack header already covers the top inset, so pages skip it.
 const PAGE_EDGES: Edge[] = ["left", "right", "bottom"];
 
@@ -111,6 +121,23 @@ const LEVEL_COLORS: Record<Level, { main: string; bg: string }> = {
   none: { main: "#5F6B64", bg: "#F0F2F1" }, // gray
   error: { main: "#5F6B64", bg: "#F0F2F1" }, // gray
 };
+
+// How each finding type is explained inside the expanded card.
+const MATCH_TYPE_LABELS: Record<MatchType, string> = {
+  direct: "Direct — listed in the ingredients or Contains statement",
+  possible: "Possible — \"may contain\" or traces warning",
+  verify: "Needs checking — the source is not stated on the label",
+};
+
+// Alert.alert does nothing on web, so web uses the browser's alert.
+function showMessage(title: string, message: string) {
+  if (Platform.OS === "web") {
+    (globalThis as any).alert?.(`${title}\n\n${message}`);
+    return;
+  }
+
+  Alert.alert(title, message);
+}
 
 // Safely turns any value into trimmed text (AI / database fields may be missing).
 function asText(value: unknown): string {
@@ -149,6 +176,140 @@ function classifyExtractionError(
   }
 
   return "front"; // e.g. "A valid front package photo is required"
+}
+
+// ---------------------------------------------------------------------------
+// REVIEW DECISION
+// The review page is shown only when the user may need to correct something.
+// ---------------------------------------------------------------------------
+
+// Words and marks that suggest the reader was not sure about the text.
+const UNCLEAR_WORDS =
+  /\b(unclear|unreadable|illegible|unknown|not visible|not legible|cannot read|can't read|could not be read|could not read|n\/a|blurry|blurred|cut off|partially visible)\b/i;
+
+function looksUnclear(text: string): boolean {
+  return (
+    UNCLEAR_WORDS.test(text) ||
+    text.includes("?") ||
+    text.includes("…") ||
+    text.includes("...") ||
+    /\*{2,}|_{2,}|#{2,}/.test(text)
+  );
+}
+
+// Product name / brand that is very short, has no letters, or looks unclear.
+function looksSuspiciousName(text: string): boolean {
+  return (
+    text.length < 2 ||
+    !/\p{L}/u.test(text) ||
+    looksUnclear(text) ||
+    /\[|\]/.test(text)
+  );
+}
+
+// Collects any notes / warnings the label reader may have returned.
+function readerNotes(extraction: any): string[] {
+  const keys = [
+    "notes",
+    "note",
+    "warnings",
+    "warning",
+    "issues",
+    "problems",
+    "quality_notes",
+    "unreadable",
+    "unreadable_text",
+  ];
+
+  const notes: string[] = [];
+
+  for (const key of keys) {
+    const value = extraction?.[key];
+
+    if (typeof value === "string" && value.trim()) {
+      notes.push(value.trim());
+    } else if (Array.isArray(value)) {
+      value
+        .filter((v): v is string => typeof v === "string" && Boolean(v.trim()))
+        .forEach((v) => notes.push(v.trim()));
+    }
+  }
+
+  return notes;
+}
+
+const POOR_PHOTO_VALUES = ["poor", "low", "bad", "blurry", "unclear", "dark"];
+
+function photoNeedsCorrection(extraction: any, which: "front" | "ingredients") {
+  const quality = asText(
+    extraction?.[`${which}_photo_quality`] ??
+      extraction?.[`${which}_quality`] ??
+      ""
+  ).toLowerCase();
+
+  return (
+    POOR_PHOTO_VALUES.includes(quality) ||
+    extraction?.[`retake_${which}`] === true ||
+    extraction?.[`${which}_needs_retake`] === true
+  );
+}
+
+// Returns the reasons the user should review the extracted text.
+// An empty list means the analysis can continue automatically.
+function reviewReasonsFor(
+  extraction: any,
+  name: string,
+  brand: string,
+  ingredientsText: string,
+  uncertainCount: number
+): string[] {
+  const reasons: string[] = [];
+
+  if (!name || looksSuspiciousName(name)) {
+    reasons.push("The product name is missing or may not have been read correctly.");
+  }
+
+  if (!brand || looksSuspiciousName(brand)) {
+    reasons.push("The brand is missing or may not have been read correctly.");
+  }
+
+  if (!ingredientsText || looksUnclear(ingredientsText)) {
+    reasons.push("Some ingredient text may not have been read correctly.");
+  }
+
+  if (asText(extraction?.confidence).toLowerCase() === "low") {
+    reasons.push("The label reader reported low confidence for these photos.");
+  }
+
+  if (uncertainCount > 0) {
+    reasons.push(
+      `${uncertainCount} ingredient${
+        uncertainCount === 1 ? "" : "s"
+      } could not be read clearly.`
+    );
+  }
+
+  if (readerNotes(extraction).length > 0) {
+    reasons.push("The label reader reported that some text could not be read.");
+  }
+
+  const overallQuality = asText(
+    extraction?.photo_quality ?? extraction?.image_quality ?? ""
+  ).toLowerCase();
+
+  if (POOR_PHOTO_VALUES.includes(overallQuality)) {
+    reasons.push("The photos may be unclear and may need correcting.");
+  } else {
+    if (photoNeedsCorrection(extraction, "front")) {
+      reasons.push("The front photo may need correcting.");
+    }
+
+    if (photoNeedsCorrection(extraction, "ingredients")) {
+      reasons.push("The ingredient photo may need correcting.");
+    }
+  }
+
+  return [...new Set(reasons)];
 }
 
 // Loads the CURRENT user's allergies and halal setting from Supabase.
@@ -196,6 +357,42 @@ async function fetchUserPreferences(): Promise<{
   };
 }
 
+// Uploads one product photo to the "avoid-products" Storage bucket.
+// Returns the Storage path (AvoidListScreen converts it into a signed URL).
+// HTTPS URLs (for example Open Food Facts images) are returned unchanged.
+async function uploadAvoidPhoto(
+  userId: string,
+  photoUri: string | null,
+  photoName: string
+): Promise<string | null> {
+  if (!photoUri) {
+    return null;
+  }
+
+  // Already-uploaded HTTPS URLs do not need uploading again.
+  if (/^https?:\/\//i.test(photoUri)) {
+    return photoUri;
+  }
+
+  const response = await fetch(photoUri);
+  const fileData = await response.arrayBuffer();
+
+  const filePath = `${userId}/${Date.now()}-${photoName}.jpg`;
+
+  const { error } = await supabase.storage
+    .from("avoid-products")
+    .upload(filePath, fileData, {
+      contentType: "image/jpeg",
+      upsert: false,
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  return filePath;
+}
+
 // ---------------------------------------------------------------------------
 // COMPONENT
 // ---------------------------------------------------------------------------
@@ -239,8 +436,16 @@ export default function HomeScreen({ navigation }: any) {
   const [editingUncertainIndex, setEditingUncertainIndex] =
     useState<number | null>(null);
 
+  // Why the review page is being shown (empty = no review needed).
+  const [reviewReasons, setReviewReasons] = useState<string[]>([]);
+
   // True only when results were reached through the review page.
   const [hasReview, setHasReview] = useState(false);
+
+  // Full-screen photo zoom (review page). Photos are never changed.
+  const [zoomImageUri, setZoomImageUri] = useState<string | null>(null);
+  const [zoomScale, setZoomScale] = useState(MIN_ZOOM);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
   // User preferences (banner).
   const [userAllergies, setUserAllergies] = useState<string[]>([]);
@@ -272,13 +477,33 @@ export default function HomeScreen({ navigation }: any) {
     }
   }, []);
 
+  // Latest stage / product / screening function, read by the focus listener.
+  // Using refs means the listener is added once and can never loop or use
+  // stale values.
+  const focusStageRef = useRef(stage);
+  focusStageRef.current = stage;
+  const focusProductRef = useRef(product);
+  focusProductRef.current = product;
+  const screenConfirmedProductRef = useRef(screenConfirmedProduct);
+  screenConfirmedProductRef.current = screenConfirmedProduct;
+
   // Loads on open and again when the screen regains focus
   // (for example after editing the Allergy Profile).
+  // If a result is showing, the product is screened again with the
+  // CURRENT saved preferences — no new scan or photos needed.
   useEffect(() => {
     void loadUserPreferences();
+
     const unsubscribe = navigation?.addListener?.("focus", () => {
       void loadUserPreferences();
+
+      const currentProduct = focusProductRef.current;
+
+      if (focusStageRef.current === "result" && currentProduct) {
+        void screenConfirmedProductRef.current(currentProduct);
+      }
     });
+
     return unsubscribe;
   }, [navigation, loadUserPreferences]);
 
@@ -314,6 +539,8 @@ export default function HomeScreen({ navigation }: any) {
   goBackRef.current = goBack;
   const stageRef = useRef(stage);
   stageRef.current = stage;
+  const zoomOpenRef = useRef(false);
+  zoomOpenRef.current = zoomImageUri !== null;
 
   // Android hardware back button follows the same steps.
   useFocusEffect(
@@ -321,6 +548,12 @@ export default function HomeScreen({ navigation }: any) {
       const subscription = BackHandler.addEventListener(
         "hardwareBackPress",
         () => {
+          // Close the zoom viewer first.
+          if (zoomOpenRef.current) {
+            setZoomImageUri(null);
+            return true;
+          }
+
           if (stageRef.current === "home") {
             return false; // let the app handle it normally
           }
@@ -339,8 +572,32 @@ export default function HomeScreen({ navigation }: any) {
     if (hasRoute(navigation, name)) {
       navigation.navigate(name, params);
     } else {
-      Alert.alert("Not available yet", `The ${name} screen is not set up yet.`);
+      showMessage("Not available yet", `The ${name} screen is not set up yet.`);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // ZOOM VIEWER
+  // -------------------------------------------------------------------------
+
+  function openZoom(uri: string | null) {
+    if (!uri) {
+      return;
+    }
+
+    setZoomScale(MIN_ZOOM);
+    setZoomImageUri(uri);
+  }
+
+  function closeZoom() {
+    setZoomImageUri(null);
+    setZoomScale(MIN_ZOOM);
+  }
+
+  function changeZoom(step: number) {
+    setZoomScale((current) =>
+      Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current + step))
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -392,47 +649,6 @@ export default function HomeScreen({ navigation }: any) {
     );
   }
 
-  // Bottom navigation.
-  // Scan is currently the only active section.
-  // Profile and Avoid List are intentionally disabled for now.
-  function renderBottomNav() {
-    return (
-      <View style={styles.bottomNav}>
-        {/* Active Scan section: always starts a clean new scan. */}
-        <TouchableOpacity
-          style={[styles.bottomNavItem, styles.activeBottomNavItem]}
-          onPress={() => {
-            void startNewScan();
-          }}
-          activeOpacity={0.8}
-          accessibilityLabel="Scan"
-        >
-          <Text style={styles.activeBottomNavIcon}>▣</Text>
-          <Text style={styles.activeBottomNavText}>Scan</Text>
-        </TouchableOpacity>
-
-        {/* Opens the user's saved Avoid List. */}
-<TouchableOpacity
-  style={styles.bottomNavItem}
-  onPress={() => navigation.navigate("Avoid")}
-  activeOpacity={0.8}
-  accessibilityLabel="Open Avoid List"
->
-  <Text style={styles.disabledBottomNavIcon}>▤</Text>
-  <Text style={styles.disabledBottomNavText}>
-    Avoid List
-  </Text>
-</TouchableOpacity>
-
-        {/* Profile placeholder. It cannot be opened yet. */}
-        <View style={[styles.bottomNavItem, styles.disabledBottomNavItem]}>
-          <Text style={styles.disabledBottomNavIcon}>☺</Text>
-          <Text style={styles.disabledBottomNavText}>Profile</Text>
-        </View>
-      </View>
-    );
-  }
-
   // Warning on review and result pages.
   function renderPackageWarning() {
     return (
@@ -443,6 +659,109 @@ export default function HomeScreen({ navigation }: any) {
           product is safe.
         </Text>
       </View>
+    );
+  }
+
+  // Full-screen photo viewer.
+  // iOS: pinch to zoom (ScrollView zoom). All platforms: − / + buttons,
+  // then drag to move around the enlarged photo.
+  function renderZoomViewer() {
+    const viewerWidth = windowWidth;
+    const viewerHeight = Math.max(240, windowHeight * 0.72);
+
+    return (
+      <Modal
+        visible={zoomImageUri !== null}
+        animationType="fade"
+        onRequestClose={closeZoom}
+        transparent={false}
+      >
+        <View style={styles.zoomPage}>
+          <View style={styles.zoomTopBar}>
+            <Text style={styles.zoomTitle}>Zoom</Text>
+
+            <TouchableOpacity
+              style={styles.zoomCloseButton}
+              onPress={closeZoom}
+              activeOpacity={0.8}
+              accessibilityLabel="Close zoom"
+            >
+              <Text style={styles.zoomCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.zoomScroll}
+            contentContainerStyle={styles.zoomScrollContent}
+            maximumZoomScale={5}
+            minimumZoomScale={1}
+            centerContent
+            bouncesZoom
+            pinchGestureEnabled
+            showsVerticalScrollIndicator={false}
+          >
+            <ScrollView
+              horizontal
+              contentContainerStyle={styles.zoomScrollContent}
+              centerContent
+              showsHorizontalScrollIndicator={false}
+            >
+              {zoomImageUri ? (
+                <Image
+                  source={{ uri: zoomImageUri }}
+                  style={{
+                    width: viewerWidth * zoomScale,
+                    height: viewerHeight * zoomScale,
+                  }}
+                  resizeMode="contain"
+                  accessibilityLabel="Zoomed product photo"
+                />
+              ) : null}
+            </ScrollView>
+          </ScrollView>
+
+          <View style={styles.zoomControls}>
+            <TouchableOpacity
+              style={[
+                styles.zoomControlButton,
+                zoomScale <= MIN_ZOOM && styles.disabledButton,
+              ]}
+              onPress={() => changeZoom(-ZOOM_STEP)}
+              disabled={zoomScale <= MIN_ZOOM}
+              accessibilityLabel="Zoom out"
+            >
+              <Text style={styles.zoomControlText}>−</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setZoomScale(MIN_ZOOM)}
+              accessibilityLabel="Reset zoom"
+            >
+              <Text style={styles.zoomLevelText}>
+                {Math.round(zoomScale * 100)}%
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.zoomControlButton,
+                zoomScale >= MAX_ZOOM && styles.disabledButton,
+              ]}
+              onPress={() => changeZoom(ZOOM_STEP)}
+              disabled={zoomScale >= MAX_ZOOM}
+              accessibilityLabel="Zoom in"
+            >
+              <Text style={styles.zoomControlText}>+</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.zoomHelpText}>
+            {Platform.OS === "ios"
+              ? "Pinch or use − and + to zoom. Drag to move around."
+              : "Use − and + to zoom. Drag to move around."}
+          </Text>
+        </View>
+      </Modal>
     );
   }
 
@@ -487,9 +806,10 @@ export default function HomeScreen({ navigation }: any) {
           <View>
             <Text style={styles.statusExplanation}>{section.explanation}</Text>
 
+            {/* Every finding: allergy name, source, match type, exact text. */}
             {findings.map((finding, index) => (
               <View
-                key={`${finding.statement}-${index}`}
+                key={`${finding.sourceLabel}-${finding.statement}-${index}`}
                 style={styles.findingRow}
               >
                 <Text style={[styles.findingTitle, { color: colors.main }]}>
@@ -498,8 +818,13 @@ export default function HomeScreen({ navigation }: any) {
                 <Text style={styles.findingSource}>
                   Found in: {finding.sourceLabel}
                 </Text>
+                {finding.matchType ? (
+                  <Text style={styles.findingSource}>
+                    Match: {MATCH_TYPE_LABELS[finding.matchType]}
+                  </Text>
+                ) : null}
                 <Text style={styles.findingStatement}>
-                  "{finding.statement}"
+                  Matched text: "{finding.statement}"
                 </Text>
               </View>
             ))}
@@ -508,40 +833,6 @@ export default function HomeScreen({ navigation }: any) {
       </View>
     );
   }
-  async function uploadAvoidPhoto(
-  userId: string,
-  photoUri: string | null,
-  photoName: string
-): Promise<string | null> {
-  if (!photoUri) {
-    return null;
-  }
-
-  // Already-uploaded HTTPS URLs do not need uploading again.
-  if (/^https?:\/\//i.test(photoUri)) {
-    return photoUri;
-  }
-
-  const response = await fetch(photoUri);
-  const fileData = await response.arrayBuffer();
-
-  const filePath = `${userId}/${Date.now()}-${photoName}.jpg`;
-
-  const { error } = await supabase.storage
-    .from("avoid-products")
-    .upload(filePath, fileData, {
-      contentType: "image/jpeg",
-      upsert: false,
-    });
-
-  if (error) {
-    throw error;
-  }
-
-  // Store the Storage path.
-  // AvoidListScreen converts it into a signed URL.
-  return filePath;
-}
 
   // -------------------------------------------------------------------------
   // BARCODE
@@ -554,20 +845,27 @@ export default function HomeScreen({ navigation }: any) {
         const result = await requestPermission();
 
         if (!result.granted) {
-          Alert.alert(
-            "Camera permission needed",
-            "Please allow camera access in your phone settings.",
-            [
-              { text: "Not now", style: "cancel" },
-              { text: "Open Settings", onPress: () => Linking.openSettings() },
-            ]
-          );
+          if (Platform.OS === "web") {
+            showMessage(
+              "Camera permission needed",
+              "Please allow camera access in your browser settings."
+            );
+          } else {
+            Alert.alert(
+              "Camera permission needed",
+              "Please allow camera access in your phone settings.",
+              [
+                { text: "Not now", style: "cancel" },
+                { text: "Open Settings", onPress: () => Linking.openSettings() },
+              ]
+            );
+          }
           return;
         }
       }
     } catch (error) {
       console.warn("Camera permission request failed:", error);
-      Alert.alert("Camera error", "The camera could not be started.");
+      showMessage("Camera error", "The camera could not be started.");
       return;
     }
 
@@ -584,7 +882,7 @@ export default function HomeScreen({ navigation }: any) {
   }
 
   // Clears the previous result + photos, then opens the scanner.
-  // Used by "Scan product", the bottom Scan tab and "Scan another product".
+  // Used by "Scan product" and "Scan another product".
   async function startNewScan() {
     resetWorkflow();
     await openBarcodeCamera();
@@ -608,6 +906,7 @@ export default function HomeScreen({ navigation }: any) {
     setFrontPhotoUri(null);
     setPhotoError(null);
     setTakingPhoto(false);
+    setZoomImageUri(null);
 
     // Product + review.
     setProduct(null);
@@ -620,6 +919,7 @@ export default function HomeScreen({ navigation }: any) {
     setLowConfidence(false);
     setUncertainItems([]);
     setEditingUncertainIndex(null);
+    setReviewReasons([]);
     setHasReview(false);
 
     // Result.
@@ -645,6 +945,7 @@ export default function HomeScreen({ navigation }: any) {
     setUncertainItems([]);
     setEditingUncertainIndex(null);
     setLowConfidence(false);
+    setReviewReasons([]);
     setHasReview(false);
     setBarcode("");
     setLookupMessage("");
@@ -674,7 +975,7 @@ export default function HomeScreen({ navigation }: any) {
     const cleaned = cleanBarcode(manualBarcode);
 
     if (!isValidBarcode(cleaned)) {
-      Alert.alert("Invalid barcode", "Enter an 8 to 14 digit barcode.");
+      showMessage("Invalid barcode", "Enter an 8 to 14 digit barcode.");
       return;
     }
 
@@ -716,6 +1017,7 @@ export default function HomeScreen({ navigation }: any) {
     setFrontPhotoUri(null);
     setPhotoError(null);
     setHasReview(false);
+    setReviewReasons([]);
     setProduct(null);
     setScreening(null);
     setScreeningLoading(false);
@@ -810,6 +1112,8 @@ export default function HomeScreen({ navigation }: any) {
   }
 
   // Runs AI extraction on the two photos. Always ends on a valid screen.
+  // Goes straight to the result when nothing needs correcting;
+  // otherwise opens the review page and explains why.
   async function analyzePhotos(frontUri: string) {
     const ingredientsUri = ingredientsPhotoUri;
 
@@ -864,12 +1168,38 @@ export default function HomeScreen({ navigation }: any) {
         ingredientsPhotoUri: ingredientsUri,
       };
 
+      const uncertain = parseUncertainIngredients(extraction.unclear_text);
+      const reasons = reviewReasonsFor(
+        extraction,
+        name,
+        brand,
+        text,
+        uncertain.length
+      );
+
       fillProductFields(extracted);
-      setUncertainItems(parseUncertainIngredients(extraction.unclear_text));
-      setLowConfidence(extraction.confidence === "low");
       setScreening(null);
-      setHasReview(true);
-      setStage("review");
+      setAllergyOpen(false);
+      setHalalOpen(false);
+      setSavedAvoid(false);
+
+      // Something may need correcting: show the review page.
+      if (reasons.length > 0) {
+        setUncertainItems(uncertain);
+        setLowConfidence(extraction.confidence === "low");
+        setReviewReasons(reasons);
+        setHasReview(true);
+        setStage("review");
+        return;
+      }
+
+      // Everything looks clear: continue to the analysis automatically.
+      setUncertainItems([]);
+      setLowConfidence(false);
+      setReviewReasons([]);
+      setHasReview(false);
+      setStage("result");
+      await screenConfirmedProduct(extracted);
     } catch (error) {
       if (runId !== extractionRunId.current) {
         return;
@@ -897,14 +1227,21 @@ export default function HomeScreen({ navigation }: any) {
         await ImagePicker.requestCameraPermissionsAsync();
 
       if (!permissionResult.granted) {
-        Alert.alert(
-          "Camera permission needed",
-          "Allow camera access in Settings to photograph the package label.",
-          [
-            { text: "Not now", style: "cancel" },
-            { text: "Open Settings", onPress: () => Linking.openSettings() },
-          ]
-        );
+        if (Platform.OS === "web") {
+          showMessage(
+            "Camera permission needed",
+            "Allow camera access in your browser settings to photograph the package label."
+          );
+        } else {
+          Alert.alert(
+            "Camera permission needed",
+            "Allow camera access in Settings to photograph the package label.",
+            [
+              { text: "Not now", style: "cancel" },
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+            ]
+          );
+        }
         return;
       }
 
@@ -923,7 +1260,7 @@ export default function HomeScreen({ navigation }: any) {
       const photoUri = result.assets?.[0]?.uri;
 
       if (!photoUri) {
-        Alert.alert("Photo error", "The phone did not return a photo.");
+        showMessage("Photo error", "The phone did not return a photo.");
         return;
       }
 
@@ -946,7 +1283,7 @@ export default function HomeScreen({ navigation }: any) {
       }
     } catch (error) {
       console.warn("Camera failed:", error);
-      Alert.alert(
+      showMessage(
         "Camera not available",
         "The camera could not be opened. Please try again."
       );
@@ -965,6 +1302,9 @@ export default function HomeScreen({ navigation }: any) {
   // -------------------------------------------------------------------------
 
   // Allergy + halal screening of the confirmed product.
+  // Checks ingredients, Contains, May contain, product name and brand.
+  // Afterwards, the product is sent for verification in the background
+  // ONLY if the user turned that preference on (checked inside the helper).
   async function screenConfirmedProduct(confirmed: ProductData) {
     const runId = ++screeningRunId.current;
     setScreeningLoading(true);
@@ -984,11 +1324,29 @@ export default function HomeScreen({ navigation }: any) {
         screenProduct({
           allergies: prefs.allergies,
           prefersHalal: prefs.prefersHalal,
-          ingredients: confirmed.ingredients,
-          contains: confirmed.contains,
-          mayContain: confirmed.mayContain,
+          ingredients: asText(confirmed.ingredients),
+          contains: asText(confirmed.contains),
+          mayContain: asText(confirmed.mayContain),
+          productName: asText(confirmed.productName),
+          brandName: asText(confirmed.brandName),
         })
       );
+
+      // Background submission: never awaited, never shows errors,
+      // never blocks analysis or the Avoid List.
+      void submitProductForReview({
+        barcode: confirmed.barcode,
+        productName: asText(confirmed.productName),
+        brandName: asText(confirmed.brandName),
+        variant: asText(confirmed.variant),
+        ingredients: asText(confirmed.ingredients),
+        contains: asText(confirmed.contains),
+        mayContain: asText(confirmed.mayContain),
+        source: asText(confirmed.source),
+        frontPhotoUri: confirmed.frontPhotoUri,
+        ingredientsPhotoUri: confirmed.ingredientsPhotoUri,
+        imageUrl: confirmed.imageUrl ?? null,
+      });
     } catch (error) {
       if (runId !== screeningRunId.current) {
         return;
@@ -1016,7 +1374,7 @@ export default function HomeScreen({ navigation }: any) {
   // Confirms the review page and runs the analysis.
   async function confirmAndAnalyze() {
     if (!ingredients.trim()) {
-      Alert.alert(
+      showMessage(
         "Ingredients required",
         "Please retake the ingredient photo. No ingredients were read."
       );
@@ -1024,7 +1382,7 @@ export default function HomeScreen({ navigation }: any) {
     }
 
     if (uncertainItems.some((item) => !item.confirmed)) {
-      Alert.alert(
+      showMessage(
         "Please check the uncertain ingredients",
         "Edit an ingredient if needed, then tick “It is correct” for every item."
       );
@@ -1032,7 +1390,7 @@ export default function HomeScreen({ navigation }: any) {
     }
 
     if (uncertainItems.some((item) => !item.value.trim())) {
-      Alert.alert(
+      showMessage(
         "Empty ingredient",
         "Please type the ingredient as it appears on the package."
       );
@@ -1071,9 +1429,19 @@ export default function HomeScreen({ navigation }: any) {
     await screenConfirmedProduct(confirmed);
   }
 
-  // Saves the confirmed product + the reason for the warning.
+  // Saves the confirmed product, its photos, the full warning reason
+  // and the actual halal screening status.
   async function addToAvoidList() {
     if (!product || savingAvoid || savedAvoid) {
+      return;
+    }
+
+    // Tell the user instead of silently ignoring the tap.
+    if (screeningLoading || !screening) {
+      showMessage(
+        "Please wait",
+        "The screening result is still loading. Try again in a moment."
+      );
       return;
     }
 
@@ -1082,48 +1450,101 @@ export default function HomeScreen({ navigation }: any) {
     try {
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
 
-      if (!user) {
-        Alert.alert("Login required", "Please log in before saving products.");
-        return;
+      if (userError) {
+        throw userError;
       }
 
-      // Reason = the headlines of the warnings that were found.
+      if (!user) {
+        throw new Error("Your login session expired. Please log in again.");
+      }
+
+      // Photo upload problems are reported but do not block the save.
+      let frontPhotoPath: string | null = null;
+      let ingredientsPhotoPath: string | null = null;
+      let photoWarning = "";
+
+      try {
+        // Local front photo first; otherwise the Open Food Facts image.
+        frontPhotoPath = await uploadAvoidPhoto(
+          user.id,
+          product.frontPhotoUri || product.imageUrl || null,
+          "front"
+        );
+
+        ingredientsPhotoPath = await uploadAvoidPhoto(
+          user.id,
+          product.ingredientsPhotoUri,
+          "ingredients"
+        );
+      } catch (photoError: any) {
+        console.error("Avoid List photo upload failed:", photoError);
+        photoWarning = `\n\nThe photos could not be saved: ${
+          photoError?.message || "upload failed"
+        }`;
+      }
+
+      // Reason = every finding with its source and the exact label text.
       const reasons = [
-        ...(screening?.allergy.findings ?? []),
-        ...(screening?.halal?.findings ?? []),
-      ].map((finding) => finding.headline);
+        ...new Set(
+          [
+            ...(screening.allergy.findings ?? []),
+            ...(screening.halal?.findings ?? []),
+          ].map(
+            (finding) =>
+              `${finding.headline} — ${finding.sourceLabel}: "${finding.statement}"`
+          )
+        ),
+      ];
 
-      const reason =
+      const saveReason =
         reasons.length > 0
-          ? reasons.join(" ")
-          : screening?.allergy.status || "Saved by the user.";
+          ? reasons.join("; ")
+          : screening.allergy.status || "Saved by the user.";
 
-      const { error } = await supabase.from("avoid_list").insert({
-        user_id: user.id,
-        barcode: product.barcode ?? null,
-        product_name: productName.trim(),
-        brand_name: brandName.trim(),
-        variant: variant.trim(),
-        ingredients_text: ingredients.trim(),
-        contains_text: contains.trim(),
-        may_contain_text: mayContain.trim(),
-        save_reason: reason,
-        source: product.source,
-      });
+      const { error: insertError } = await supabase
+        .from("avoid_list")
+        .insert({
+          user_id: user.id,
+          barcode: product.barcode ?? null,
+          product_name: asText(product.productName),
+          brand_name: asText(product.brandName),
+          variant: asText(product.variant),
+          ingredients_text: asText(product.ingredients),
+          contains_text: asText(product.contains),
+          may_contain_text: asText(product.mayContain),
+          save_reason: saveReason,
+          source: product.source,
 
-      if (error) {
-        throw error;
+          // The actual halal result shown on the card.
+          halal_status:
+            screening.halal?.status ||
+            (prefersHalal
+              ? "Halal screening could not be completed"
+              : "Halal screening not selected"),
+
+          front_photo_url: frontPhotoPath,
+          ingredients_photo_url: ingredientsPhotoPath,
+        });
+
+      if (insertError) {
+        throw insertError;
       }
 
       setSavedAvoid(true);
-      Alert.alert("Saved", "The product was added to your Avoid List.");
-    } catch (error) {
-      console.warn("Avoid List save failed:", error);
-      Alert.alert(
-        "Could not save",
-        "The product could not be added to your Avoid List."
+
+      showMessage(
+        "Added successfully",
+        `The product was added to your Avoid List.${photoWarning}`
+      );
+    } catch (error: any) {
+      console.error("Avoid List save failed:", error);
+
+      showMessage(
+        "Could not save product",
+        error?.message || "The product could not be added to your Avoid List."
       );
     } finally {
       setSavingAvoid(false);
@@ -1138,7 +1559,10 @@ export default function HomeScreen({ navigation }: any) {
   if (stage === "home") {
     return (
       <SafeAreaView style={styles.homePage} edges={PAGE_EDGES}>
-        <View style={styles.homeContent}>
+        <ScrollView
+          contentContainerStyle={styles.homeContent}
+          showsVerticalScrollIndicator={false}
+        >
           {renderAllergyBanner()}
 
           <Text style={styles.homeTitle}>Scan food barcode</Text>
@@ -1160,9 +1584,9 @@ export default function HomeScreen({ navigation }: any) {
             If the product is not found, the app will ask for ingredient and
             package photos.
           </Text>
-        </View>
+        </ScrollView>
 
-        {renderBottomNav()}
+        <BottomNavigation navigation={navigation} activeTab="Home" />
       </SafeAreaView>
     );
   }
@@ -1321,7 +1745,7 @@ export default function HomeScreen({ navigation }: any) {
     );
   }
 
-  // ----- Review -----
+  // ----- Review (only shown when something may need correcting) -----
   if (stage === "review" && product) {
     // Live preview of the ingredient list with the user's edits applied.
     const previewIngredients = applyIngredientCorrections(
@@ -1331,6 +1755,7 @@ export default function HomeScreen({ navigation }: any) {
 
     const confirmedCount = uncertainItems.filter((i) => i.confirmed).length;
     const allConfirmed = confirmedCount === uncertainItems.length;
+    const canConfirm = allConfirmed && ingredients.trim().length > 0;
 
     return (
       <SafeAreaView style={styles.resultPage} edges={PAGE_EDGES}>
@@ -1342,14 +1767,54 @@ export default function HomeScreen({ navigation }: any) {
           {renderAllergyBanner()}
           {renderPackageWarning()}
 
+          {/* Tap either photo to open the zoom viewer. */}
           {frontPhotoUri ? (
-            <Image source={{ uri: frontPhotoUri }} style={styles.resultPhoto} />
+            <TouchableOpacity
+              onPress={() => openZoom(frontPhotoUri)}
+              activeOpacity={0.85}
+              accessibilityLabel="Zoom front package photo"
+            >
+              <Image source={{ uri: frontPhotoUri }} style={styles.resultPhoto} />
+            </TouchableOpacity>
+          ) : null}
+
+          {ingredientsPhotoUri ? (
+            <TouchableOpacity
+              onPress={() => openZoom(ingredientsPhotoUri)}
+              activeOpacity={0.85}
+              accessibilityLabel="Zoom ingredient label photo"
+            >
+              <Text style={styles.photoCaption}>Ingredient label photo</Text>
+              <Image
+                source={{ uri: ingredientsPhotoUri }}
+                style={styles.reviewIngredientPhoto}
+              />
+            </TouchableOpacity>
+          ) : null}
+
+          {frontPhotoUri || ingredientsPhotoUri ? (
+            <Text style={styles.zoomHint}>🔍 Tap the image to zoom</Text>
           ) : null}
 
           <Text style={styles.resultTitle}>Review product information</Text>
           <Text style={styles.resultSubtitle}>
             Check the details below against the physical package.
           </Text>
+
+          {/* Why the review page is being shown. */}
+          {reviewReasons.length > 0 ? (
+            <View style={styles.reviewReasonCard}>
+              <Text style={styles.reviewReasonTitle}>
+                Please check before we analyze
+              </Text>
+
+              {reviewReasons.map((reason, index) => (
+                <Text key={`${reason}-${index}`} style={styles.reviewReasonText}>
+                  • {reason}
+                </Text>
+              ))}
+            </View>
+          ) : null}
 
           {/* Brand and product name can be corrected. */}
           <Text style={styles.fieldLabel}>Brand</Text>
@@ -1480,7 +1945,7 @@ export default function HomeScreen({ navigation }: any) {
           </View>
 
           <TouchableOpacity
-            style={[styles.confirmButton, !allConfirmed && styles.confirmButtonDisabled]}
+            style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
             onPress={confirmAndAnalyze}
             activeOpacity={0.8}
           >
@@ -1492,25 +1957,26 @@ export default function HomeScreen({ navigation }: any) {
               Tick “It is correct” for every uncertain ingredient to continue.
             </Text>
           )}
+
+          {!ingredients.trim() && (
+            <Text style={styles.resultNote}>
+              No ingredients were read. Please retake the ingredient photo.
+            </Text>
+          )}
         </ScrollView>
+
+        {renderZoomViewer()}
       </SafeAreaView>
     );
   }
 
   // ----- Result -----
   if (stage === "result" && product) {
-    // Ingredient rows that matched a warning are highlighted.
-    const flagged = screening
-      ? [
-          ...screening.allergy.findings,
-          ...(screening.halal?.findings ?? []),
-        ]
-          .filter((finding) => finding.sourceLabel === "Ingredients")
-          .map((finding) => normalizeText(finding.statement))
-      : [];
-
     const ingredientRows = splitTopLevel(ingredients, ITEM_SEPARATORS);
     const imageUri = product.frontPhotoUri || product.imageUrl;
+
+    // The button always responds; addToAvoidList explains if it must wait.
+    const avoidDisabled = savingAvoid || savedAvoid;
 
     return (
       <SafeAreaView style={styles.resultPage} edges={PAGE_EDGES}>
@@ -1556,6 +2022,8 @@ export default function HomeScreen({ navigation }: any) {
             </>
           )}
 
+          {/* Every ingredient related to ANY finding is highlighted,
+              including findings from Contains and May contain. */}
           <Text style={styles.detailHeading}>Ingredients</Text>
           <View style={styles.ingredientListCard}>
             {ingredientRows.length === 0 ? (
@@ -1567,7 +2035,7 @@ export default function HomeScreen({ navigation }: any) {
                   <Text
                     style={[
                       styles.ingredientText,
-                      flagged.includes(normalizeText(ingredient)) &&
+                      isIngredientHighlighted(ingredient, screening) &&
                         styles.ingredientFlagged,
                     ]}
                   >
@@ -1585,12 +2053,9 @@ export default function HomeScreen({ navigation }: any) {
           <Text style={styles.detailText}>{mayContain || "None listed"}</Text>
 
           <TouchableOpacity
-            style={[
-              styles.avoidButton,
-              (savingAvoid || savedAvoid) && styles.disabledButton,
-            ]}
+            style={[styles.avoidButton, avoidDisabled && styles.disabledButton]}
             onPress={addToAvoidList}
-            disabled={savingAvoid || savedAvoid}
+            disabled={avoidDisabled}
             activeOpacity={0.8}
           >
             <Text style={styles.avoidButtonText}>
@@ -1619,7 +2084,7 @@ export default function HomeScreen({ navigation }: any) {
           </Text>
         </ScrollView>
 
-        {renderBottomNav()}
+        <BottomNavigation navigation={navigation} activeTab="Home" />
       </SafeAreaView>
     );
   }
@@ -1637,7 +2102,7 @@ export default function HomeScreen({ navigation }: any) {
           onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
           onMountError={(error) => {
             console.warn("Camera mount error:", error.message);
-            Alert.alert("Camera error", "The camera could not be started.");
+            showMessage("Camera error", "The camera could not be started.");
           }}
           barcodeScannerSettings={{
             barcodeTypes: [
@@ -1784,38 +2249,8 @@ const styles = StyleSheet.create({
   },
   warningText: { color: "#6B5200", fontSize: 13, lineHeight: 19, fontWeight: "600" },
 
-  // Bottom navigation container.
-  bottomNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    minHeight: 72,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
-    borderTopColor: "#E2E9E3",
-  },
-  // Each navigation item has equal width.
-  bottomNavItem: {
-    flex: 1,
-    minHeight: 54,
-    marginHorizontal: 4,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  // Highlighted active section.
-  activeBottomNavItem: { backgroundColor: "#E8F5E9" },
-  activeBottomNavIcon: { color: "#176B43", fontSize: 20, marginBottom: 3 },
-  activeBottomNavText: { color: "#176B43", fontSize: 12, fontWeight: "800" },
-  // Disabled sections remain visible but cannot be pressed.
-  disabledBottomNavItem: { opacity: 0.42 },
-  disabledBottomNavIcon: { color: "#63776B", fontSize: 20, marginBottom: 3 },
-  disabledBottomNavText: { color: "#63776B", fontSize: 12, fontWeight: "600" },
-
   homePage: { flex: 1, backgroundColor: "#F8FBF8" },
-  homeContent: { flex: 1, justifyContent: "center", padding: 24 },
+  homeContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
   homeTitle: { color: "#176B43", fontSize: 30, fontWeight: "800", textAlign: "center" },
   homeSubtitle: {
     color: "#63776B",
@@ -2017,7 +2452,10 @@ const styles = StyleSheet.create({
   loadingCancelText: { color: "#A4C766", fontSize: 15, fontWeight: "800" },
 
   resultPage: { flex: 1, backgroundColor: "#F8FBF8" },
-  resultContent: { padding: 20, paddingBottom: 30 },
+  resultContent: {
+    padding: 20,
+    paddingBottom: 170,
+  },
   resultPhoto: {
     width: "100%",
     height: 250,
@@ -2038,6 +2476,79 @@ const styles = StyleSheet.create({
   resultSubtitle: { color: "#63776B", fontSize: 14, lineHeight: 20, marginTop: 8 },
   resultBrand: { color: "#63776B", fontSize: 16, marginTop: 5 },
   sourceText: { color: "#176B43", fontSize: 12, marginTop: 10 },
+
+  // Review page: ingredient photo, zoom hint and review reasons.
+  photoCaption: { color: "#264C37", fontSize: 13, fontWeight: "700", marginBottom: 6 },
+  reviewIngredientPhoto: {
+    width: "100%",
+    height: 150,
+    borderRadius: 14,
+    resizeMode: "cover",
+    marginBottom: 8,
+  },
+  zoomHint: {
+    color: "#63776B",
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  reviewReasonCard: {
+    backgroundColor: "#FFF8E1",
+    borderWidth: 1,
+    borderColor: "#E0B83F",
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 16,
+  },
+  reviewReasonTitle: { color: "#755000", fontSize: 15, fontWeight: "800", marginBottom: 6 },
+  reviewReasonText: { color: "#755000", fontSize: 13, lineHeight: 19, marginTop: 3 },
+
+  // Zoom viewer.
+  zoomPage: { flex: 1, backgroundColor: "#000000" },
+  zoomTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 54 : 24,
+    paddingBottom: 10,
+  },
+  zoomTitle: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
+  zoomCloseButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(255, 255, 255, 0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  zoomCloseText: { color: "#FFFFFF", fontSize: 20, fontWeight: "800" },
+  zoomScroll: { flex: 1 },
+  zoomScrollContent: { flexGrow: 1, alignItems: "center", justifyContent: "center" },
+  zoomControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 22,
+    paddingTop: 12,
+  },
+  zoomControlButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255, 255, 255, 0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  zoomControlText: { color: "#FFFFFF", fontSize: 26, fontWeight: "800", lineHeight: 30 },
+  zoomLevelText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700", minWidth: 54, textAlign: "center" },
+  zoomHelpText: {
+    color: "#C7D0C8",
+    fontSize: 12,
+    textAlign: "center",
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 34 : 18,
+  },
 
   statusCard: {
     backgroundColor: "#FFFFFF",
@@ -2175,40 +2686,4 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 18,
   },
-  bottomNav: {
-  minHeight: 70,
-  backgroundColor: "#FFFFFF",
-  borderTopWidth: 1,
-  borderTopColor: "#DDE7E0",
-  flexDirection: "row",
-  justifyContent: "space-around",
-  alignItems: "center",
-},
-
-navItem: {
-  minWidth: 72,
-  alignItems: "center",
-  justifyContent: "center",
-  paddingVertical: 10,
-},
-
-navIcon: {
-  color: "#76857C",
-  fontSize: 21,
-},
-
-activeNavIcon: {
-  color: "#176B43",
-},
-
-navText: {
-  color: "#76857C",
-  fontSize: 12,
-  marginTop: 3,
-},
-
-activeNavText: {
-  color: "#176B43",
-  fontWeight: "700",
-},
 });

@@ -17,13 +17,24 @@ export type Level =
 export type SourceLabel =
   | "Ingredients"
   | "Contains"
-  | "May Contain";
+  | "May contain"
+  | "Product name"
+  | "Brand";
+
+// How strong a finding is.
+// direct   = listed in the ingredients or Contains statement
+// possible = "may contain", traces or similar precautionary wording
+// verify   = the source is not stated (or only the product name / brand matched)
+export type MatchType = "direct" | "possible" | "verify";
 
 // One detected ingredient or warning.
 export type Finding = {
   headline: string;
   sourceLabel: SourceLabel;
-  statement: string;
+  statement: string; // the exact label text that caused the match
+  allergen?: string; // the user's allergy name, or "Halal"
+  matchedTerm?: string; // the dictionary term that matched
+  matchType?: MatchType;
 };
 
 // One screening result section.
@@ -54,12 +65,19 @@ export type ScreeningInput = {
   ingredients: string;
   contains: string;
   mayContain: string;
+  productName?: string;
+  brandName?: string;
 };
 
 // Separators used to display ingredient items.
 export const ITEM_SEPARATORS = ",;\n،|";
 
-// Normalizes English and Arabic text before matching.
+// ---------------------------------------------------------------------------
+// TEXT HELPERS
+// ---------------------------------------------------------------------------
+
+// Normalizes English and Arabic text: lowercase, no accents,
+// punctuation (hyphens, slashes, parentheses, commas) becomes spaces.
 export function normalizeText(value: string): string {
   return String(value ?? "")
     .normalize("NFKD")
@@ -72,6 +90,126 @@ export function normalizeText(value: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// Spelling variations that should match each other.
+// Applied to BOTH the label text and the dictionary terms.
+const PHRASE_EQUIVALENTS: [string, string][] = [
+  ["soya", "soy"],
+  ["soy bean", "soybean"],
+  ["yoghurt", "yogurt"],
+  ["skimmed", "skim"],
+  ["albumen", "albumin"],
+  ["flavour", "flavor"],
+  ["gelatine", "gelatin"],
+  ["glycerine", "glycerin"],
+  ["tahina", "tahini"],
+  ["mollusk", "mollusc"],
+];
+
+// Turns plural English words into their singular form
+// (eggs -> egg, hazelnuts -> hazelnut, anchovies -> anchovy).
+function singularizeWord(word: string): string {
+  if (!/^[a-z]+$/.test(word) || word.length <= 3) {
+    return word;
+  }
+
+  if (word.endsWith("ies") && word.length > 4) {
+    return `${word.slice(0, -3)}y`;
+  }
+
+  // Words like "glass", "couscous", "arachis" are not plurals.
+  if (/(ss|us|is)$/.test(word)) {
+    return word;
+  }
+
+  if (word.endsWith("s")) {
+    return word.slice(0, -1);
+  }
+
+  return word;
+}
+
+const canonicalCache = new Map<string, string>();
+
+// Full matching form: normalized, E-numbers joined ("E 322" -> "e322"),
+// plurals removed and spelling variations unified.
+export function canonicalText(value: string): string {
+  const raw = String(value ?? "");
+  const cached = canonicalCache.get(raw);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  let text = normalizeText(raw).replace(/\be (\d{3,4}[a-z]?)\b/g, "e$1");
+
+  let padded = ` ${text.split(" ").map(singularizeWord).join(" ")} `;
+
+  for (const [from, to] of PHRASE_EQUIVALENTS) {
+    const pattern = ` ${from} `;
+    let guard = 0;
+
+    while (padded.includes(pattern) && guard < 50) {
+      padded = padded.replace(pattern, ` ${to} `);
+      guard += 1;
+    }
+  }
+
+  text = padded.replace(/\s+/g, " ").trim();
+
+  if (canonicalCache.size > 5000) {
+    canonicalCache.clear();
+  }
+
+  canonicalCache.set(raw, text);
+  return text;
+}
+
+function isArabic(value: string): boolean {
+  return /[\u0600-\u06ff]/.test(value);
+}
+
+// Word-aware check: "fish" matches "fish oil" but not "fisherman".
+function containsCanonical(textCanon: string, termCanon: string): boolean {
+  if (!textCanon || !termCanon) {
+    return false;
+  }
+
+  if (isArabic(termCanon)) {
+    return textCanon.includes(termCanon);
+  }
+
+  return ` ${textCanon} `.includes(` ${termCanon} `);
+}
+
+// Removes safe phrases (e.g. "coconut milk") before matching,
+// and reports which ones were present.
+function maskExclusions(
+  textCanon: string,
+  exclusions: string[] = []
+): { text: string; found: string[] } {
+  let padded = ` ${textCanon} `;
+  const found: string[] = [];
+
+  for (const exclusion of exclusions) {
+    const exclusionCanon = canonicalText(exclusion);
+
+    if (!exclusionCanon) {
+      continue;
+    }
+
+    const pattern = isArabic(exclusionCanon)
+      ? exclusionCanon
+      : ` ${exclusionCanon} `;
+
+    if (padded.includes(pattern)) {
+      found.push(exclusion);
+      padded = padded.split(pattern).join(" # ");
+    }
+  }
+
+  return { text: padded.replace(/\s+/g, " ").trim(), found };
 }
 
 // Splits text without splitting inside parentheses.
@@ -92,8 +230,7 @@ export function splitTopLevel(
       depth = Math.max(0, depth - 1);
     }
 
-    const isSeparator =
-      depth === 0 && separators.includes(character);
+    const isSeparator = depth === 0 && separators.includes(character);
 
     if (isSeparator) {
       if (current.trim()) {
@@ -114,14 +251,9 @@ export function splitTopLevel(
 }
 
 // Converts the AI uncertainty result into editable review rows.
-export function parseUncertainIngredients(
-  raw: unknown
-): UncertainIngredient[] {
+export function parseUncertainIngredients(raw: unknown): UncertainIngredient[] {
   const values: string[] = Array.isArray(raw)
-    ? raw.filter(
-        (item): item is string =>
-          typeof item === "string"
-      )
+    ? raw.filter((item): item is string => typeof item === "string")
     : typeof raw === "string"
     ? splitTopLevel(raw)
     : [];
@@ -176,54 +308,167 @@ export function applyIngredientCorrections(
 }
 
 // ---------------------------------------------------------------------------
-// Allergy rules
+// RULES + MATCHING
 // ---------------------------------------------------------------------------
 
-type AllergyRule = {
-  name: string;
+type Rule = {
+  key: string;
+  aliases: string[]; // allergy names a user may have saved for this rule
   directTerms: string[];
   verifyTerms?: string[];
-  exclusions?: string[];
+  exclusions?: string[]; // safe phrases removed before matching
+  // When an exclusion phrase is present, these verify terms are already
+  // explained (e.g. "sunflower lecithin" explains "E322").
+  resolves?: Record<string, string[]>;
 };
 
-// These phrases should not make coconut or plant products look like dairy.
-const MILK_EXCLUSIONS = [
-  "coconut milk",
-  "coconut cream",
-  "almond milk",
-  "oat milk",
-  "soy milk",
-  "soya milk",
-  "rice milk",
-  "cocoa butter",
-  "shea butter",
-  "peanut butter",
-  "nut butter",
-  "cream of tartar",
+type RuleMatch = { kind: "direct" | "verify"; term: string };
+
+// Checks one label item against one rule.
+function matchRule(
+  item: string,
+  rule: Rule,
+  includeVerify: boolean
+): RuleMatch | null {
+  const { text, found } = maskExclusions(canonicalText(item), rule.exclusions);
+
+  for (const term of rule.directTerms) {
+    if (containsCanonical(text, canonicalText(term))) {
+      return { kind: "direct", term };
+    }
+  }
+
+  if (!includeVerify || !rule.verifyTerms) {
+    return null;
+  }
+
+  const suppressed = new Set(
+    found.flatMap((phrase) =>
+      (rule.resolves?.[phrase] ?? []).map((term) => canonicalText(term))
+    )
+  );
+
+  for (const term of rule.verifyTerms) {
+    const termCanon = canonicalText(term);
+
+    if (!suppressed.has(termCanon) && containsCanonical(text, termCanon)) {
+      return { kind: "verify", term };
+    }
+  }
+
+  return null;
+}
+
+// Precautionary wording inside any field = "possible", not "direct".
+function isPrecautionary(item: string): boolean {
+  const text = ` ${normalizeText(item)} `;
+
+  return [
+    " may contain ",
+    " may also contain ",
+    " can contain ",
+    " might contain ",
+    " trace ",
+    " traces ",
+    " may be present ",
+    " made in a factory ",
+    " made in a facility ",
+    " produced in a factory ",
+    " produced in a facility ",
+    " manufactured in a facility ",
+    " manufactured on ",
+    " processed in a facility ",
+    " packed in a facility ",
+    " same production line ",
+    " shared equipment ",
+    " قد يحتوي ",
+    " اثار ",
+  ].some((phrase) => text.includes(phrase));
+}
+
+// ---------------------------------------------------------------------------
+// ALLERGEN DICTIONARY
+// ---------------------------------------------------------------------------
+
+const WHEAT_DIRECT = [
+  "wheat",
+  "wheat flour",
+  "whole wheat",
+  "wheat starch",
+  "wheat protein",
+  "wheat gluten",
+  "gluten",
+  "durum",
+  "semolina",
+  "farina",
+  "spelt",
+  "couscous",
+  "bulgur",
+  "seitan",
+  "einkorn",
+  "emmer",
+  "kamut",
+  "قمح",
+  "دقيق القمح",
+  "سميد",
+  "برغل",
 ];
 
-const ALLERGY_RULES: Record<string, AllergyRule> = {
-  milk: {
-    name: "Milk",
+const WHEAT_VERIFY = [
+  "flour",
+  "starch",
+  "modified starch",
+  "breadcrumbs",
+  "دقيق",
+];
+
+const WHEAT_EXCLUSIONS = [
+  "buckwheat",
+  "rice flour",
+  "corn flour",
+  "maize flour",
+  "potato flour",
+  "chickpea flour",
+  "coconut flour",
+  "almond flour",
+  "potato starch",
+  "corn starch",
+  "maize starch",
+  "tapioca starch",
+  "rice starch",
+  "pea starch",
+  "gluten free",
+];
+
+const ALLERGY_RULES: Rule[] = [
+  {
+    key: "milk",
+    aliases: ["milk", "dairy", "dairy products", "lactose", "cow milk", "milk products"],
     directTerms: [
       "milk",
+      "dairy",
+      "dairy products",
+      "milk powder",
+      "skimmed milk powder",
+      "skim milk",
+      "milk solids",
       "whey",
+      "whey powder",
+      "lactose",
       "casein",
       "caseinate",
-      "lactose",
       "butter",
       "buttermilk",
+      "butterfat",
+      "butter oil",
       "cream",
       "cheese",
       "yogurt",
       "yoghurt",
       "ghee",
       "curd",
-      "dairy",
       "lactalbumin",
       "lactoglobulin",
-      "milk solids",
-      "milk powder",
       "حليب",
       "لبن",
       "جبن",
@@ -231,19 +476,39 @@ const ALLERGY_RULES: Record<string, AllergyRule> = {
       "قشدة",
       "مصل اللبن",
     ],
-    verifyTerms: [
-      "lactic acid",
-      "milk flavor",
-      "milk flavour",
+    verifyTerms: ["lactic acid", "milk flavor", "milk flavour"],
+    exclusions: [
+      "coconut milk",
+      "coconut cream",
+      "coconut yogurt",
+      "almond milk",
+      "oat milk",
+      "soy milk",
+      "soya milk",
+      "rice milk",
+      "cashew milk",
+      "cocoa butter",
+      "shea butter",
+      "peanut butter",
+      "nut butter",
+      "almond butter",
+      "cashew butter",
+      "cream of tartar",
+      "milk thistle",
+      "dairy free",
+      "milk free",
+      "lactose free",
     ],
-    exclusions: MILK_EXCLUSIONS,
   },
 
-  eggs: {
-    name: "Eggs",
+  {
+    key: "egg",
+    aliases: ["egg", "eggs", "egg products"],
     directTerms: [
       "egg",
       "eggs",
+      "egg powder",
+      "whole egg",
       "egg white",
       "egg yolk",
       "albumin",
@@ -256,13 +521,18 @@ const ALLERGY_RULES: Record<string, AllergyRule> = {
       "بيض",
       "صفار البيض",
     ],
-    exclusions: ["eggplant", "egg plant"],
+    exclusions: ["egg plant", "egg free"],
   },
 
-  peanuts: {
-    name: "Peanuts",
+  {
+    key: "peanut",
+    aliases: ["peanut", "peanuts", "groundnut", "groundnuts"],
     directTerms: [
       "peanut",
+      "peanuts",
+      "peanut butter",
+      "peanut flour",
+      "peanut oil",
       "groundnut",
       "arachis",
       "monkey nut",
@@ -271,22 +541,32 @@ const ALLERGY_RULES: Record<string, AllergyRule> = {
     ],
   },
 
-  "tree nuts": {
-    name: "Tree nuts",
+  {
+    key: "tree nut",
+    aliases: ["tree nut", "tree nuts", "nut", "nuts"],
     directTerms: [
-      "tree nut",
+      "tree nuts",
       "almond",
+      "almonds",
       "hazelnut",
+      "hazelnuts",
       "walnut",
+      "walnuts",
       "cashew",
+      "cashews",
       "pistachio",
+      "pistachios",
       "pecan",
+      "pecans",
       "macadamia",
       "brazil nut",
+      "brazil nuts",
       "pine nut",
+      "pine nuts",
+      "mixed nuts",
       "praline",
       "marzipan",
-      "nougat",
+      "gianduja",
       "مكسرات",
       "لوز",
       "بندق",
@@ -294,65 +574,44 @@ const ALLERGY_RULES: Record<string, AllergyRule> = {
       "كاجو",
       "فستق حلبي",
     ],
-    exclusions: [
-      "water chestnut",
-      "nutmeg",
-      "coconut",
-      "peanut",
-      "groundnut",
-      "جوز الهند",
-      "جوزة الطيب",
-    ],
+    // Generic "nuts" (e.g. "may contain nuts") needs checking.
+    verifyTerms: ["nut", "nuts"],
+    exclusions: ["water chestnut", "جوز الهند", "جوزة الطيب"],
   },
 
-  wheat: {
-    name: "Wheat",
-    directTerms: [
-      "wheat",
-      "wheat flour",
-      "semolina",
-      "durum",
-      "spelt",
-      "farina",
-      "couscous",
-      "bulgur",
-      "seitan",
-      "einkorn",
-      "emmer",
-      "kamut",
-      "graham",
-      "قمح",
-      "دقيق القمح",
-      "سميد",
-      "برغل",
-    ],
-    verifyTerms: [
-      "flour",
-      "gluten",
-      "malt",
-      "starch",
-      "modified starch",
-      "breadcrumbs",
-      "دقيق",
-    ],
-    exclusions: [
-      "buckwheat",
-      "rice flour",
-      "corn flour",
-      "maize flour",
-      "gluten free",
-    ],
+  {
+    key: "wheat",
+    aliases: ["wheat", "wheat products"],
+    directTerms: WHEAT_DIRECT,
+    verifyTerms: WHEAT_VERIFY,
+    exclusions: WHEAT_EXCLUSIONS,
   },
 
-  soy: {
-    name: "Soy",
+  {
+    key: "gluten",
+    aliases: ["gluten", "celiac", "coeliac", "gluten intolerance"],
+    directTerms: [...WHEAT_DIRECT, "barley", "rye", "triticale", "malt", "malt extract"],
+    verifyTerms: [...WHEAT_VERIFY, "oat", "oats"],
+    exclusions: WHEAT_EXCLUSIONS,
+  },
+
+  {
+    key: "soy",
+    aliases: ["soy", "soya", "soybean", "soybeans", "soy bean", "soy beans", "soya beans"],
     directTerms: [
       "soy",
       "soya",
       "soybean",
+      "soybeans",
       "soy bean",
-      "soy lecithin",
+      "soy beans",
       "soya lecithin",
+      "soy lecithin",
+      "soybean oil",
+      "soy protein",
+      "soy flour",
+      "textured vegetable protein",
+      "tvp",
       "edamame",
       "tofu",
       "miso",
@@ -360,49 +619,50 @@ const ALLERGY_RULES: Record<string, AllergyRule> = {
       "صويا",
       "فول الصويا",
     ],
-    verifyTerms: [
-      "lecithin",
-      "e322",
-      "vegetable protein",
-      "ليسيثين",
-    ],
-    exclusions: [
-      "sunflower lecithin",
-      "rapeseed lecithin",
-    ],
+    verifyTerms: ["lecithin", "e322", "vegetable protein", "ليسيثين"],
+    exclusions: ["sunflower lecithin", "rapeseed lecithin", "canola lecithin", "soy free"],
+    resolves: {
+      "sunflower lecithin": ["lecithin", "e322"],
+      "rapeseed lecithin": ["lecithin", "e322"],
+      "canola lecithin": ["lecithin", "e322"],
+    },
   },
 
-  fish: {
-    name: "Fish",
+  {
+    key: "fish",
+    aliases: ["fish", "fishes"],
     directTerms: [
       "fish",
+      "fish oil",
+      "fish stock",
+      "fish sauce",
+      "fish gelatin",
       "anchovy",
-      "cod",
+      "anchovies",
       "salmon",
       "tuna",
+      "cod",
       "sardine",
+      "sardines",
       "mackerel",
       "haddock",
+      "trout",
       "pollock",
       "tilapia",
-      "trout",
       "hake",
-      "fish sauce",
-      "fish oil",
+      "herring",
       "سمك",
-      "أسماك",
+      "اسماك",
       "تونة",
       "سردين",
-      "أنشوجة",
+      "انشوجة",
     ],
-    verifyTerms: [
-      "omega 3",
-      "worcestershire sauce",
-    ],
+    verifyTerms: ["omega 3", "worcestershire sauce"],
   },
 
-  shellfish: {
-    name: "Shellfish",
+  {
+    key: "shellfish",
+    aliases: ["shellfish", "crustacean", "crustaceans", "mollusc", "molluscs", "seafood"],
     directTerms: [
       "shellfish",
       "crustacean",
@@ -413,14 +673,13 @@ const ALLERGY_RULES: Record<string, AllergyRule> = {
       "crayfish",
       "krill",
       "scampi",
+      "clam",
       "mussel",
       "oyster",
-      "clam",
       "scallop",
       "squid",
       "octopus",
       "mollusc",
-      "mollusk",
       "روبيان",
       "جمبري",
       "قريدس",
@@ -430,14 +689,16 @@ const ALLERGY_RULES: Record<string, AllergyRule> = {
     ],
   },
 
-  sesame: {
-    name: "Sesame",
+  {
+    key: "sesame",
+    aliases: ["sesame", "sesame seed", "sesame seeds"],
     directTerms: [
       "sesame",
       "sesame seed",
-      "sesame oil",
+      "sesame seeds",
       "tahini",
-      "tahina",
+      "sesame oil",
+      "sesame flour",
       "gingelly",
       "benne",
       "simsim",
@@ -446,123 +707,54 @@ const ALLERGY_RULES: Record<string, AllergyRule> = {
       "طحينية",
     ],
   },
-};
+];
 
-// Matches the user's saved allergy name to a known rule.
-function ruleForAllergy(allergy: string): AllergyRule {
-  const key = normalizeText(allergy);
+// Matches the user's saved allergy name to a dictionary rule.
+// Unknown names become a custom rule, so a custom allergy is never ignored.
+function ruleForAllergy(allergy: string): Rule {
+  const key = canonicalText(allergy);
 
-  const aliases: Record<string, string> = {
-    egg: "eggs",
-    peanut: "peanuts",
-    nut: "tree nuts",
-    "tree nut": "tree nuts",
-    soya: "soy",
-    gluten: "wheat",
-    dairy: "milk",
-    lactose: "milk",
-    crustaceans: "shellfish",
-    seafood: "shellfish",
+  for (const rule of ALLERGY_RULES) {
+    if (rule.aliases.some((alias) => canonicalText(alias) === key)) {
+      return rule;
+    }
+  }
+
+  return {
+    key: `custom:${key}`,
+    aliases: [allergy],
+    directTerms: [allergy.trim()],
   };
-
-  return (
-    ALLERGY_RULES[key] ||
-    ALLERGY_RULES[aliases[key]] || {
-      name: allergy.trim(),
-      directTerms: [allergy.trim()],
-    }
-  );
 }
 
-// Escapes special characters before using a term in RegExp.
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+// ---------------------------------------------------------------------------
+// LABEL SOURCES
+// ---------------------------------------------------------------------------
 
-// Checks whether a term appears as a complete word or phrase.
-function containsTerm(
-  text: string,
-  term: string
-): boolean {
-  const normalizedText = normalizeText(text);
-  const normalizedTerm = normalizeText(term);
+type LabelPart = { source: SourceLabel; items: string[] };
 
-  if (!normalizedText || !normalizedTerm) {
-    return false;
-  }
+function labelParts(input: ScreeningInput): LabelPart[] {
+  const productName = String(input.productName ?? "").trim();
+  const brandName = String(input.brandName ?? "").trim();
 
-  // Arabic terms are checked by phrase inclusion.
-  if (/[\u0600-\u06ff]/.test(normalizedTerm)) {
-    return normalizedText.includes(normalizedTerm);
-  }
-
-  const expression = new RegExp(
-    `(^| )${escapeRegExp(normalizedTerm)}(s|es)?( |$)`
-  );
-
-  return expression.test(normalizedText);
-}
-
-// Returns true only when an item is exactly an excluded phrase.
-function isExcluded(
-  item: string,
-  exclusions: string[] = []
-): boolean {
-  const normalizedItem = normalizeText(item);
-
-  return exclusions.some(
-    (exclusion) =>
-      normalizeText(exclusion) === normalizedItem
-  );
-}
-
-// Finds the first matching term in one ingredient item.
-function findMatch(
-  item: string,
-  terms: string[] = [],
-  exclusions: string[] = []
-): string | null {
-  // Do not classify exact safe phrases as allergen matches.
-  if (isExcluded(item, exclusions)) {
-    return null;
-  }
-
-  for (const term of terms) {
-    if (containsTerm(item, term)) {
-      return term;
-    }
-  }
-
-  return null;
-}
-
-// Splits the label into ingredients, Contains, and May Contain sections.
-function labelParts(input: ScreeningInput) {
   return [
-    {
-      source: "Ingredients" as SourceLabel,
-      items: splitTopLevel(input.ingredients),
-    },
-    {
-      source: "Contains" as SourceLabel,
-      items: splitTopLevel(input.contains),
-    },
-    {
-      source: "May Contain" as SourceLabel,
-      items: splitTopLevel(input.mayContain),
-    },
+    { source: "Ingredients", items: splitTopLevel(input.ingredients) },
+    { source: "Contains", items: splitTopLevel(input.contains) },
+    { source: "May contain", items: splitTopLevel(input.mayContain) },
+    { source: "Product name", items: productName ? [productName] : [] },
+    { source: "Brand", items: brandName ? [brandName] : [] },
   ];
 }
 
-// Removes duplicate findings while preserving each source separately.
+// Removes duplicate findings while preserving the order they appeared in.
 function uniqueFindings(findings: Finding[]): Finding[] {
   const unique = new Map<string, Finding>();
 
   for (const finding of findings) {
     const key =
-      `${normalizeText(finding.headline)}|` +
+      `${canonicalText(finding.allergen ?? finding.headline)}|` +
       `${finding.sourceLabel}|` +
-      `${normalizeText(finding.statement)}`;
+      `${canonicalText(finding.statement)}`;
 
     if (!unique.has(key)) {
       unique.set(key, finding);
@@ -572,143 +764,168 @@ function uniqueFindings(findings: Finding[]): Finding[] {
   return [...unique.values()];
 }
 
+function uniqueInOrder(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
 // ---------------------------------------------------------------------------
-// Allergy screening
+// ALLERGY SCREENING
 // ---------------------------------------------------------------------------
 
-function screenAllergies(
-  input: ScreeningInput
-): ScreeningSection {
-  const allergies = input.allergies
-    .map((allergy) => allergy.trim())
-    .filter(Boolean);
+function screenAllergies(input: ScreeningInput): ScreeningSection {
+  // One entry per rule, keeping the name the user saved.
+  const profile: { label: string; rule: Rule }[] = [];
+  const seenRules = new Set<string>();
 
-  if (allergies.length === 0) {
+  for (const raw of input.allergies) {
+    const label = String(raw ?? "").trim();
+
+    if (!label || !canonicalText(label)) {
+      continue;
+    }
+
+    const rule = ruleForAllergy(label);
+
+    if (!seenRules.has(rule.key)) {
+      seenRules.add(rule.key);
+      profile.push({ label, rule });
+    }
+  }
+
+  if (profile.length === 0) {
     return {
       level: "none",
       status: "No allergies in your profile",
-      explanation:
-        "Add allergies to your profile to screen products against them.",
+      explanation: "Add allergies to your profile to screen products against them.",
       findings: [],
     };
   }
 
-  if (
-    !input.ingredients.trim() &&
-    !input.contains.trim() &&
-    !input.mayContain.trim()
-  ) {
+  if (!input.ingredients.trim() && !input.contains.trim() && !input.mayContain.trim()) {
     return {
       level: "error",
       status: "Insufficient information",
-      explanation:
-        "There is no confirmed ingredient or allergen information to check.",
+      explanation: "There is no confirmed ingredient or allergen information to check.",
       findings: [],
     };
   }
 
-  const directFindings: Finding[] = [];
-  const mayFindings: Finding[] = [];
-  const verifyFindings: Finding[] = [];
+  const findings: Finding[] = [];
+  const foundInLabel = new Set<string>(); // rule keys found in label text
 
-  const directAllergens = new Set<string>();
-  const mayAllergens = new Set<string>();
+  // Every source, every item, every allergy — never stops at the first match.
+  for (const part of labelParts(input)) {
+    const isNameSource = part.source === "Product name" || part.source === "Brand";
 
-  for (const allergy of allergies) {
-    const rule = ruleForAllergy(allergy);
+    for (const item of part.items) {
+      const precautionary = part.source === "May contain" || isPrecautionary(item);
 
-    for (const part of labelParts(input)) {
-      for (const item of part.items) {
-        const directMatch = findMatch(
-          item,
-          rule.directTerms,
-          rule.exclusions
-        );
-
-        if (directMatch) {
-          if (part.source === "May Contain") {
-            mayAllergens.add(rule.name);
-
-            mayFindings.push({
-              headline: `May contain ${rule.name}`,
-              sourceLabel: part.source,
-              statement: item,
-            });
-          } else {
-            directAllergens.add(rule.name);
-
-            directFindings.push({
-              headline: `Contains ${rule.name} (${directMatch})`,
-              sourceLabel: part.source,
-              statement: item,
-            });
-          }
-
+      for (const { label, rule } of profile) {
+        // Brand is only relevant when nothing else found this allergen.
+        if (part.source === "Brand" && foundInLabel.has(rule.key)) {
           continue;
         }
 
-        const verifyMatch = findMatch(
-          item,
-          rule.verifyTerms,
-          rule.exclusions
-        );
+        const match = matchRule(item, rule, !isNameSource);
 
-        if (
-          verifyMatch &&
-          part.source !== "May Contain"
-        ) {
-          verifyFindings.push({
-            headline: `Possible ${rule.name} source (${verifyMatch})`,
-            sourceLabel: part.source,
-            statement: item,
-          });
+        if (!match) {
+          continue;
         }
+
+        let matchType: MatchType;
+        let headline: string;
+
+        if (isNameSource) {
+          matchType = "verify";
+          headline = `${label} mentioned in ${part.source.toLowerCase()}`;
+        } else if (precautionary) {
+          matchType = "possible";
+          headline = `May contain: ${label}`;
+        } else if (match.kind === "direct") {
+          matchType = "direct";
+          headline = `Allergen detected: ${label}`;
+        } else {
+          matchType = "verify";
+          headline = `Possible ${label} source (${match.term})`;
+        }
+
+        if (!isNameSource) {
+          foundInLabel.add(rule.key);
+        }
+
+        findings.push({
+          headline,
+          sourceLabel: part.source,
+          statement: item,
+          allergen: label,
+          matchedTerm: match.term,
+          matchType,
+        });
       }
     }
   }
 
-  const uniqueDirect = uniqueFindings(directFindings);
-  const uniqueMay = uniqueFindings(mayFindings);
-  const uniqueVerify = uniqueFindings(verifyFindings);
+  const unique = uniqueFindings(findings);
 
-  if (uniqueDirect.length > 0) {
+  const direct = unique.filter((f) => f.matchType === "direct");
+  const possible = unique.filter((f) => f.matchType === "possible");
+  const verify = unique.filter((f) => f.matchType === "verify");
+
+  const names = (list: Finding[]) =>
+    uniqueInOrder(list.map((f) => f.allergen ?? "")).filter(Boolean);
+
+  const directNames = names(direct);
+  const possibleNames = names(possible).filter((n) => !directNames.includes(n));
+  const verifyNames = names(verify).filter(
+    (n) => !directNames.includes(n) && !possibleNames.includes(n)
+  );
+
+  // Direct first, then possible, then needs-checking.
+  const ordered = [...direct, ...possible, ...verify];
+
+  if (direct.length > 0) {
+    const extra: string[] = [];
+
+    if (possibleNames.length > 0) {
+      extra.push(`The label also warns it may contain: ${possibleNames.join(", ")}.`);
+    }
+
+    if (verifyNames.length > 0) {
+      extra.push(`Also check: ${verifyNames.join(", ")}.`);
+    }
+
     return {
       level: "direct",
-      status: `Allergen detected: ${[
-        ...directAllergens,
-      ].join(", ")}`,
-      explanation:
-        "A selected allergy was found in the ingredients or Contains statement.",
-      findings: [
-        ...uniqueDirect,
-        ...uniqueMay,
-        ...uniqueVerify,
-      ],
+      status: `Allergen detected: ${directNames.join(", ")}`,
+      explanation: [
+        `Found in the ingredients or Contains statement: ${directNames.join(", ")}.`,
+        ...extra,
+      ].join(" "),
+      findings: ordered,
     };
   }
 
-  if (uniqueMay.length > 0) {
+  if (possible.length > 0) {
     return {
       level: "may",
-      status: `May contain: ${[
-        ...mayAllergens,
-      ].join(", ")}`,
-      explanation:
-        "The label includes a possible trace warning related to an allergy in your profile.",
-      findings: [
-        ...uniqueMay,
-        ...uniqueVerify,
-      ],
+      status: `May contain: ${possibleNames.join(", ")}`,
+      explanation: [
+        "The label includes a precautionary \"may contain\" or traces warning related to an allergy in your profile.",
+        verifyNames.length > 0 ? `Also check: ${verifyNames.join(", ")}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      findings: ordered,
     };
   }
 
-  if (uniqueVerify.length > 0) {
+  if (verify.length > 0) {
     return {
       level: "verify",
       status: "Requires allergy verification",
       explanation:
-        "Some ingredients may come from an allergen source, but the label does not provide enough detail to confirm it.",
-      findings: uniqueVerify,
+        "Some label text may relate to an allergy in your profile, but the label does not give enough detail to confirm it.",
+      findings: ordered,
     };
   }
 
@@ -716,126 +933,129 @@ function screenAllergies(
     level: "clear",
     status: "No selected allergen detected",
     explanation:
-      "No selected allergy was found in the available label text. Always check the physical package.",
+      "No selected allergy was found in the available label text. This is not a safety guarantee — always check the physical package.",
     findings: [],
   };
 }
 
 // ---------------------------------------------------------------------------
-// Halal-related screening
+// HALAL-RELATED SCREENING
 // ---------------------------------------------------------------------------
 
-// Explicit pork-related terms.
-const HALAL_CONCERN_TERMS = [
-  "pork",
-  "pig",
-  "swine",
-  "porcine",
-  "pork fat",
-  "lard",
-  "ham",
-  "bacon",
-  "prosciutto",
-  "pancetta",
-  "خنزير",
-  "لحم خنزير",
-  "شحم الخنزير",
-];
+const HALAL_RULE: Rule = {
+  key: "halal",
+  aliases: [],
+  // Explicit pork-related terms.
+  directTerms: [
+    "pork",
+    "pig",
+    "swine",
+    "porcine",
+    "pork fat",
+    "lard",
+    "ham",
+    "bacon",
+    "prosciutto",
+    "pancetta",
+    "خنزير",
+    "لحم خنزير",
+    "شحم الخنزير",
+  ],
+  // Ingredients whose source may vary.
+  verifyTerms: [
+    "gelatin",
+    "e441",
+    "collagen",
+    "rennet",
+    "animal rennet",
+    "pepsin",
+    "animal fat",
+    "tallow",
+    "carmine",
+    "cochineal",
+    "e120",
+    "e542",
+    "mono and diglycerides",
+    "e471",
+    "e472",
+    "glycerin",
+    "glycerol",
+    "stearic acid",
+    "e570",
+    "shortening",
+    "ethanol",
+    "ethyl alcohol",
+    "alcohol",
+    "vanilla extract",
+    "e322",
+    "lecithin",
+    "e422",
+    "e470",
+    "e470a",
+    "e470b",
+    "e476",
+    "e477",
+    "e481",
+    "e482",
+    "e920",
+    "enzymes",
+    "enzyme",
+    "meat",
+    "beef",
+    "chicken",
+    "lamb",
+    "mutton",
+    "veal",
+    "turkey",
+    "duck",
+    "goat",
+    "جيلاتين",
+    "كحول",
+    "منفحة",
+    "شحم",
+    "لحم",
+    "دجاج",
+  ],
+  // Phrases that should not create a warning.
+  exclusions: [
+    "soy lecithin",
+    "soybean lecithin",
+    "sunflower lecithin",
+    "rapeseed lecithin",
+    "canola lecithin",
+    "vegetable glycerin",
+    "vegetable fat",
+    "vegetable shortening",
+    "vegetable mono and diglycerides",
+    "fish gelatin",
+    "halal gelatin",
+    "non alcoholic",
+    "alcohol free",
+    "sugar alcohol",
+    "beef bacon",
+    "turkey bacon",
+    "chicken ham",
+    "turkey ham",
+    "microbial rennet",
+    "vegetable rennet",
+  ],
+  // A plant source stated on the label explains these terms.
+  resolves: {
+    "soy lecithin": ["e322", "lecithin"],
+    "soybean lecithin": ["e322", "lecithin"],
+    "sunflower lecithin": ["e322", "lecithin"],
+    "rapeseed lecithin": ["e322", "lecithin"],
+    "canola lecithin": ["e322", "lecithin"],
+    "vegetable mono and diglycerides": ["e471", "mono and diglycerides"],
+  },
+};
 
-// Ingredients whose source may vary.
-const HALAL_VERIFY_TERMS = [
-  "gelatin",
-  "gelatine",
-  "e441",
-  "collagen",
-  "rennet",
-  "animal rennet",
-  "pepsin",
-  "animal fat",
-  "tallow",
-  "carmine",
-  "cochineal",
-  "e120",
-  "e542",
-  "mono and diglycerides",
-  "e471",
-  "e472",
-  "glycerin",
-  "glycerol",
-  "stearic acid",
-  "e570",
-  "shortening",
-  "ethanol",
-  "ethyl alcohol",
-  "alcohol",
-  "vanilla extract",
-  "e422",
-  "e470",
-  "e470a",
-  "e470b",
-  "e476",
-  "e477",
-  "e481",
-  "e482",
-  "e920",
-  "enzymes",
-  "enzyme",
-  "meat",
-  "beef",
-  "chicken",
-  "lamb",
-  "mutton",
-  "veal",
-  "turkey",
-  "duck",
-  "goat",
-  "جيلاتين",
-  "كحول",
-  "منفحة",
-  "شحم",
-  "لحم",
-  "دجاج",
-];
-
-// Exact phrases that should not create false warnings.
-const HALAL_EXCLUSIONS = [
-  "vanilla",
-  "vanilla flavor",
-  "vanilla flavour",
-  "vanillin",
-  "vegetable glycerin",
-  "vegetable glycerine",
-  "vegetable fat",
-  "vegetable shortening",
-  "fish gelatin",
-  "fish gelatine",
-  "halal gelatin",
-  "halal gelatine",
-  "non alcoholic",
-  "alcohol free",
-  "sugar alcohol",
-  "wine vinegar",
-  "cider vinegar",
-  "apple cider vinegar",
-  "beef bacon",
-  "turkey bacon",
-  "chicken ham",
-  "turkey ham",
-];
-
-// Screens halal-related concerns.
-function screenHalal(
-  input: ScreeningInput
-): ScreeningSection {
-  if (
-    !input.ingredients.trim() &&
-    !input.contains.trim()
-  ) {
+function screenHalal(input: ScreeningInput): ScreeningSection {
+  if (!input.ingredients.trim() && !input.contains.trim()) {
     return {
       level: "error",
       status: "Insufficient information",
-      explanation:
-        "There is not enough label information for halal-related screening.",
+      explanation: "There is not enough label information for halal-related screening.",
       findings: [],
     };
   }
@@ -844,39 +1064,38 @@ function screenHalal(
   const verifyFindings: Finding[] = [];
 
   for (const part of labelParts(input)) {
-    // May Contain traces are not treated as direct halal findings.
-    if (part.source === "May Contain") {
+    // Traces are not halal findings; brand names are not checked.
+    if (part.source === "May contain" || part.source === "Brand") {
       continue;
     }
 
+    const isName = part.source === "Product name";
+
     for (const item of part.items) {
-      const concernMatch = findMatch(
-        item,
-        HALAL_CONCERN_TERMS,
-        HALAL_EXCLUSIONS
-      );
+      // Product name: only explicit pork-related terms.
+      const match = matchRule(item, HALAL_RULE, !isName);
 
-      if (concernMatch) {
-        concernFindings.push({
-          headline: `Halal-related concern (${concernMatch})`,
-          sourceLabel: part.source,
-          statement: item,
-        });
-
+      if (!match) {
         continue;
       }
 
-      const verifyMatch = findMatch(
-        item,
-        HALAL_VERIFY_TERMS,
-        HALAL_EXCLUSIONS
-      );
-
-      if (verifyMatch) {
-        verifyFindings.push({
-          headline: `Requires halal verification (${verifyMatch})`,
+      if (match.kind === "direct") {
+        concernFindings.push({
+          headline: `Halal-related concern (${match.term})`,
           sourceLabel: part.source,
           statement: item,
+          allergen: "Halal",
+          matchedTerm: match.term,
+          matchType: "direct",
+        });
+      } else {
+        verifyFindings.push({
+          headline: `Requires halal verification (${match.term})`,
+          sourceLabel: part.source,
+          statement: item,
+          allergen: "Halal",
+          matchedTerm: match.term,
+          matchType: "verify",
         });
       }
     }
@@ -891,10 +1110,7 @@ function screenHalal(
       status: "Halal-related concern detected",
       explanation:
         "The label includes an ingredient that requires careful verification. This is not a halal certification decision.",
-      findings: [
-        ...uniqueConcerns,
-        ...uniqueVerify,
-      ],
+      findings: [...uniqueConcerns, ...uniqueVerify],
     };
   }
 
@@ -910,8 +1126,7 @@ function screenHalal(
 
   return {
     level: "clear",
-    status:
-      "No identified concern from available label information",
+    status: "No identified concern from available label information",
     explanation:
       "No known halal-related concern was identified in the available label text. This is not halal certification.",
     findings: [],
@@ -919,29 +1134,63 @@ function screenHalal(
 }
 
 // ---------------------------------------------------------------------------
-// Public screening function
+// HIGHLIGHTING
 // ---------------------------------------------------------------------------
 
-export function screenProduct(
-  input: ScreeningInput
-): ScreeningData {
+// True when an ingredient row relates to ANY finding — including findings
+// that came from Contains, May contain or the product name.
+export function isIngredientHighlighted(
+  ingredient: string,
+  data: ScreeningData | null | undefined
+): boolean {
+  if (!data || !String(ingredient ?? "").trim()) {
+    return false;
+  }
+
+  for (const finding of data.allergy.findings ?? []) {
+    if (!finding.allergen) {
+      continue;
+    }
+
+    const rule = ruleForAllergy(finding.allergen);
+
+    if (matchRule(ingredient, rule, finding.matchType === "verify")) {
+      return true;
+    }
+  }
+
+  for (const finding of data.halal?.findings ?? []) {
+    const match = matchRule(ingredient, HALAL_RULE, true);
+
+    if (match && (finding.matchType === "verify" || match.kind === "direct")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// PUBLIC SCREENING FUNCTION
+// ---------------------------------------------------------------------------
+
+export function screenProduct(input: ScreeningInput): ScreeningData {
   // Protect the screening function from missing or malformed values.
   const safeInput: ScreeningInput = {
     allergies: Array.isArray(input?.allergies)
-      ? input.allergies
+      ? input.allergies.filter((a): a is string => typeof a === "string")
       : [],
-
     prefersHalal: input?.prefersHalal === true,
-
     ingredients: String(input?.ingredients ?? ""),
     contains: String(input?.contains ?? ""),
     mayContain: String(input?.mayContain ?? ""),
+    productName: String(input?.productName ?? ""),
+    brandName: String(input?.brandName ?? ""),
   };
 
   return {
     allergy: screenAllergies(safeInput),
-    halal: safeInput.prefersHalal
-      ? screenHalal(safeInput)
-      : null,
+    // Halal disabled = no halal card and no halal warning.
+    halal: safeInput.prefersHalal ? screenHalal(safeInput) : null,
   };
 }
