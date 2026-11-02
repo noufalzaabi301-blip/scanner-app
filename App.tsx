@@ -27,6 +27,9 @@ import HomeScreen from "./screens/HomeScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
+import ContactUsScreen from "./screens/ContactUsScreen";
+import FAQsScreen from "./screens/FAQsScreen";
+import AboutLabelLensScreen from "./screens/AboutLabelLensScreen";
 import AvoidListScreen from "./screens/AvoidListScreen";
 
 type ProductResult = {
@@ -72,6 +75,9 @@ export type RootStackParamList = {
   Home: undefined;
   Profile: undefined;
   ProfileSettings: undefined;
+  ContactUs: undefined;
+  FAQs: undefined;
+  AboutLabelLens: undefined;
   Avoid: undefined;
 
   AnalysisResults: {
@@ -333,6 +339,24 @@ export default function App() {
               };
             }}
           />
+
+          <Stack.Screen
+  name="ContactUs"
+  component={ContactUsScreen}
+  options={{ title: "Contact Us" }}
+/>
+
+<Stack.Screen
+  name="FAQs"
+  component={FAQsScreen}
+  options={{ title: "FAQs" }}
+/>
+
+<Stack.Screen
+  name="AboutLabelLens"
+  component={AboutLabelLensScreen}
+  options={{ title: "About LabelLens" }}
+/>
 
           <Stack.Screen
             name="Home"
