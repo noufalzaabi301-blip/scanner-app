@@ -21,15 +21,26 @@ export type SubmissionProduct = {
   imageUrl: string | null;
 };
 
+export type SubmissionOptions = {
+  // true when the caller has just read submit_products_for_review = true
+  // from user_preferences. The database insert policy still enforces it.
+  preferenceConfirmed?: boolean;
+};
+
 const BUCKET = "product-submissions";
 
 // Products already in the approved LabelLens database are not resubmitted.
-// Adjust this if your internal provider uses a different source label.
-const APPROVED_SOURCE = /labellens|approved|verified|internal/i;
+// Matches ONLY the exact source label set in lib/productProviders.ts, so
+// "Open Food Facts — not verified" and photo-extracted products are still
+// submitted.
+const APPROVED_SOURCE = /^LabelLens verified product database$/i;
 
-// Avoids repeat attempts in the same app session (e.g. re-screening
-// after editing allergies).
+// Products already submitted (or tried) in this app session, e.g. when the
+// result is re-screened after editing allergies.
 const attemptedThisSession = new Set<string>();
+
+// Submissions currently being sent, so two quick calls cannot both upload.
+const inFlight = new Set<string>();
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -86,7 +97,10 @@ async function uploadSubmissionPhoto(
   return filePath;
 }
 
-async function preferenceIsOn(userId: string): Promise<boolean> {
+// Reads the saved preference from user_preferences (the source of truth).
+export async function isProductSubmissionEnabled(
+  userId: string
+): Promise<boolean> {
   const { data, error } = await supabase
     .from("user_preferences")
     .select("submit_products_for_review")
@@ -132,9 +146,11 @@ async function alreadySubmitted(
 
 // Fire-and-forget: call with `void submitProductForReview(product)`.
 export async function submitProductForReview(
-  product: SubmissionProduct
+  product: SubmissionProduct,
+  options: SubmissionOptions = {}
 ): Promise<void> {
   let key = "";
+  let succeeded = false;
 
   try {
     // Nothing useful to verify, or already an approved product.
@@ -156,20 +172,24 @@ export async function submitProductForReview(
 
     key = submissionKey(user.id, product);
 
-    if (attemptedThisSession.has(key)) {
+    // Already submitted this session, or being sent right now.
+    if (attemptedThisSession.has(key) || inFlight.has(key)) {
+      key = "";
       return;
     }
 
-    attemptedThisSession.add(key);
+    inFlight.add(key);
 
-    // Always re-check the saved preference. Off = nothing is uploaded.
-    if (!(await preferenceIsOn(user.id))) {
-      attemptedThisSession.delete(key);
-      return;
+    // Off = nothing is uploaded.
+    if (!options.preferenceConfirmed) {
+      if (!(await isProductSubmissionEnabled(user.id))) {
+        return;
+      }
     }
 
     // Do not upload photos for a product that was already submitted.
     if (await alreadySubmitted(user.id, product)) {
+      succeeded = true;
       return;
     }
 
@@ -204,15 +224,22 @@ export async function submitProductForReview(
     if (error && (error as any).code !== "23505") {
       throw error;
     }
-  } catch (error: any) {
-    // Allow a retry on a later scan, and log only a short message.
-    if (key) {
-      attemptedThisSession.delete(key);
-    }
 
+    succeeded = true;
+  } catch (error: any) {
+    // Log only a short message; the user never sees this.
     console.warn(
       "Product submission skipped:",
       typeof error?.message === "string" ? error.message : "unknown error"
     );
+  } finally {
+    if (key) {
+      inFlight.delete(key);
+
+      // Remember successes; failures may be retried on a later scan.
+      if (succeeded) {
+        attemptedThisSession.add(key);
+      }
+    }
   }
 }

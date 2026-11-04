@@ -21,6 +21,9 @@ import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
 import AvoidListScreen from "./screens/AvoidListScreen";
 import FAQsScreen from "./screens/FAQsScreen";
 import ContactUsScreen from "./screens/ContactUsScreen";
+import AdminProductSubmissionsScreen from "./screens/AdminProductSubmissionsScreen";
+
+import { useIsAdmin } from "./lib/adminAccess";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -29,6 +32,7 @@ export type RootStackParamList = {
   Register:
     | {
         privacyAccepted?: boolean;
+        submitProductsForReview?: boolean;
       }
     | undefined;
 
@@ -46,6 +50,7 @@ export type RootStackParamList = {
   Preferences:
     | {
         mode?: "edit";
+        submitProductsForReview?: boolean;
       }
     | undefined;
 
@@ -56,6 +61,9 @@ export type RootStackParamList = {
   FAQs: undefined;
   ContactUs: undefined;
   AboutLabelLens: undefined;
+
+  // Registered only for approved admins.
+  AdminProductSubmissions: undefined;
 };
 
 const Stack =
@@ -88,6 +96,10 @@ function AboutLabelLensScreen() {
 }
 
 export default function App() {
+  // Re-checked automatically on login / logout.
+  // Real protection is RLS + the Edge Functions; this only hides the route.
+  const { isAdmin } = useIsAdmin();
+
   return (
     <SafeAreaProvider>
       <NavigationContainer>
@@ -103,41 +115,31 @@ export default function App() {
           <Stack.Screen
             name="Welcome"
             component={WelcomeScreen}
-            options={{
-              headerShown: false,
-            }}
+            options={{ headerShown: false }}
           />
 
           <Stack.Screen
             name="Login"
             component={LoginScreen}
-            options={{
-              headerShown: false,
-            }}
+            options={{ headerShown: false }}
           />
 
           <Stack.Screen
             name="Register"
             component={RegisterScreen}
-            options={{
-              title: "Create account",
-            }}
+            options={{ title: "Create account" }}
           />
 
           <Stack.Screen
             name="ForgotPassword"
             component={ForgotPasswordScreen}
-            options={{
-              title: "Reset password",
-            }}
+            options={{ title: "Reset password" }}
           />
 
           <Stack.Screen
             name="ResetPassword"
             component={ResetPasswordScreen}
-            options={{
-              title: "Reset password",
-            }}
+            options={{ title: "Reset password" }}
           />
 
           <Stack.Screen
@@ -179,50 +181,46 @@ export default function App() {
           <Stack.Screen
             name="Avoid"
             component={AvoidListScreen}
-            options={{
-              title: "My Avoid List",
-            }}
+            options={{ title: "My Avoid List" }}
           />
 
           <Stack.Screen
             name="Profile"
             component={ProfileScreen}
-            options={{
-              title: "Profile",
-            }}
+            options={{ title: "Profile" }}
           />
 
           <Stack.Screen
             name="ProfileSettings"
             component={ProfileSettingsScreen}
-            options={{
-              title: "Profile settings",
-            }}
+            options={{ title: "Profile settings" }}
           />
 
           <Stack.Screen
             name="FAQs"
             component={FAQsScreen}
-            options={{
-              title: "FAQs",
-            }}
+            options={{ title: "FAQs" }}
           />
 
           <Stack.Screen
             name="ContactUs"
             component={ContactUsScreen}
-            options={{
-              title: "Contact Us",
-            }}
+            options={{ title: "Contact Us" }}
           />
 
           <Stack.Screen
             name="AboutLabelLens"
             component={AboutLabelLensScreen}
-            options={{
-              title: "About LabelLens",
-            }}
+            options={{ title: "About LabelLens" }}
           />
+
+          {isAdmin ? (
+            <Stack.Screen
+              name="AdminProductSubmissions"
+              component={AdminProductSubmissionsScreen}
+              options={{ title: "Review submissions" }}
+            />
+          ) : null}
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

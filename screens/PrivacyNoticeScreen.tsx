@@ -10,7 +10,9 @@ import {
   View,
 } from "react-native";
 
-const PRIVACY_VERSION = "1.0";
+import { savePendingSubmissionConsent } from "../lib/productSubmissionConsent";
+
+const PRIVACY_VERSION = "1.2";
 
 const PRIVACY_NOTICE_KEY =
   "labellens_privacy_notice_accepted_v1";
@@ -22,15 +24,26 @@ export default function PrivacyNoticeScreen({
   const fromAppStart =
     route?.params?.fromAppStart === true;
 
+  const fromSignup =
+    route?.params?.fromSignup === true;
+
   const readOnly =
     route?.params?.readOnly === true;
 
   const showConsentControls =
-    fromAppStart && !readOnly;
+    (fromAppStart || fromSignup) && !readOnly;
 
+  // Required: Privacy Notice acceptance.
   const [accepted, setAccepted] = useState(false);
 
-  function showMessage(title: string, message: string) {
+  // Optional: product submission for verification (default: off).
+  const [submitProducts, setSubmitProducts] =
+    useState(false);
+
+  function showMessage(
+    title: string,
+    message: string
+  ) {
     if (Platform.OS === "web") {
       window.alert(`${title}\n\n${message}`);
     } else {
@@ -53,7 +66,17 @@ export default function PrivacyNoticeScreen({
         "true"
       );
 
-      navigation.replace("Welcome");
+      if (fromSignup) {
+        // Signed in: PreferencesScreen saves the choice to
+        // user_preferences.submit_products_for_review.
+        navigation.replace("Preferences", {
+          submitProductsForReview: submitProducts,
+        });
+      } else {
+        // No account yet: keep the choice only until Register uses it.
+        await savePendingSubmissionConsent(submitProducts);
+        navigation.replace("Welcome");
+      }
     } catch {
       showMessage(
         "Could not save your choice",
@@ -63,12 +86,18 @@ export default function PrivacyNoticeScreen({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView
+      contentContainerStyle={styles.page}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.card}>
-        <Text style={styles.title}>Privacy Notice</Text>
+        <Text style={styles.title}>
+          Privacy Notice
+        </Text>
 
         <Text style={styles.updated}>
-          LabelLens privacy notice — version {PRIVACY_VERSION}
+          LabelLens privacy notice — version{" "}
+          {PRIVACY_VERSION}
         </Text>
 
         <Text style={styles.heading}>
@@ -76,10 +105,11 @@ export default function PrivacyNoticeScreen({
         </Text>
 
         <Text style={styles.paragraph}>
-          LabelLens may collect your first and last name, account
-          email address, dietary preferences, including halal-food
-          preferences, selected food allergies, and scan history
-          when the scan-history feature is enabled.
+          LabelLens may collect your first and last name,
+          account email address, dietary preferences,
+          including halal-food preferences, selected food
+          allergies, and scan history when the scan-history
+          feature is enabled.
         </Text>
 
         <Text style={styles.heading}>
@@ -87,12 +117,9 @@ export default function PrivacyNoticeScreen({
         </Text>
 
         <Text style={styles.paragraph}>
-          We collect this information to save and apply your
-          preferences, making it easier to review products you have
-          previously scanned without needing to scan them again.
-          Your profile information is used to associate your
-          preferences with your account and to identify your account
-          within the application.
+          We collect this information to save and apply
+          your preferences, making it easier to review
+          products you have previously scanned.
         </Text>
 
         <Text style={styles.heading}>
@@ -100,12 +127,11 @@ export default function PrivacyNoticeScreen({
         </Text>
 
         <Text style={styles.paragraph}>
-          Some product information may be incomplete, outdated, or
-          inaccurate. LabelLens does not guarantee that any product
-          is safe for your dietary needs or allergies. Always read
-          and verify the current ingredient list and allergen
-          information on the product’s packaging before consuming or
-          purchasing a product.
+          Some product information may be incomplete,
+          outdated, or inaccurate. LabelLens does not
+          guarantee that any product is safe for your
+          dietary needs or allergies. Always read and
+          verify the current product packaging.
         </Text>
 
         <Text style={styles.heading}>
@@ -113,19 +139,34 @@ export default function PrivacyNoticeScreen({
         </Text>
 
         <Text style={styles.paragraph}>
-          Account and preference information is stored using
-          Supabase. Access controls are used to help ensure that
-          each user can access only their own saved preferences and
-          account-related information.
+          Account and preference information is stored
+          using Supabase. Access controls help protect
+          your account-related information.
         </Text>
 
-        <Text style={styles.heading}>Your Choices</Text>
+        <Text style={styles.heading}>
+          Optional Product Submissions
+        </Text>
 
         <Text style={styles.paragraph}>
-          You may request access to, correction of, or deletion of
-          your saved preferences and account information. You may
-          also stop using the service at any time and request
-          deletion of your account.
+          If you choose to help improve LabelLens, products
+          you scan may be sent to LabelLens for developer
+          verification. This can include the barcode, the
+          product information read from the label (name,
+          brand, ingredients and allergen statements) and
+          the package photos. Your allergy profile is not
+          sent. This is optional, off by default, and can be
+          changed at any time in your preferences.
+        </Text>
+
+        <Text style={styles.heading}>
+          Your Choices
+        </Text>
+
+        <Text style={styles.paragraph}>
+          You may request access to, correction of, or
+          deletion of your saved preferences and account
+          information.
         </Text>
 
         {showConsentControls && (
@@ -135,6 +176,8 @@ export default function PrivacyNoticeScreen({
               onPress={() =>
                 setAccepted((value) => !value)
               }
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: accepted }}
             >
               <View
                 style={[
@@ -143,13 +186,48 @@ export default function PrivacyNoticeScreen({
                 ]}
               >
                 {accepted && (
-                  <Text style={styles.checkmark}>✓</Text>
+                  <Text style={styles.checkmark}>
+                    ✓
+                  </Text>
                 )}
               </View>
 
               <Text style={styles.consentText}>
                 I have read and accept the Privacy Notice.
               </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.consentRow}
+              onPress={() =>
+                setSubmitProducts((value) => !value)
+              }
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: submitProducts }}
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  submitProducts && styles.checkedBox,
+                ]}
+              >
+                {submitProducts && (
+                  <Text style={styles.checkmark}>
+                    ✓
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.consentTextBlock}>
+                <Text style={styles.consentText}>
+                  Optional: Help improve LabelLens by sending
+                  scanned products for verification.
+                </Text>
+
+                <Text style={styles.consentHint}>
+                  Not required to use LabelLens.
+                </Text>
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -221,7 +299,7 @@ const styles = StyleSheet.create({
   consentRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    marginTop: 28,
+    marginTop: 22,
   },
 
   checkbox: {
@@ -245,10 +323,21 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 
+  consentTextBlock: {
+    flex: 1,
+  },
+
   consentText: {
     flex: 1,
     color: "#263E32",
     lineHeight: 21,
+  },
+
+  consentHint: {
+    color: "#68766F",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
   },
 
   acceptButton: {

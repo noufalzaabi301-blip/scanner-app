@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-import ProductSubmissionPreference from "../components/ProductSubmissionPreference";
 
 import { useFocusEffect } from "@react-navigation/native";
 
@@ -9,6 +8,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -34,6 +34,7 @@ type SavedPreferences = {
   has_allergies: boolean | null;
   allergies: unknown;
   other_allergy: string | null;
+  submit_products_for_review: boolean | null;
 };
 
 function splitCustomAllergies(
@@ -56,6 +57,12 @@ export default function PreferencesScreen({
   const isEditMode =
     route?.params?.mode === "edit";
 
+  // Consent passed from Register (via the Privacy Notice), if any.
+  const routeConsent: boolean | undefined =
+    typeof route?.params?.submitProductsForReview === "boolean"
+      ? route.params.submitProductsForReview
+      : undefined;
+
   const [prefersHalal, setPrefersHalal] =
     useState<boolean | null>(null);
 
@@ -70,6 +77,10 @@ export default function PreferencesScreen({
 
   const [customInput, setCustomInput] =
     useState("");
+
+  // Optional product-submission consent (default: off).
+  const [submitProducts, setSubmitProducts] =
+    useState(false);
 
   const [loading, setLoading] = useState(false);
   const [loadingSaved, setLoadingSaved] =
@@ -99,10 +110,18 @@ export default function PreferencesScreen({
           return;
         }
 
+        // Consent chosen at sign-up (kept with the account), used only
+        // until a value has been saved to user_preferences.
+        const signUpConsent =
+          user.user_metadata?.submit_products_for_review === true;
+
+        const fallbackConsent =
+          routeConsent ?? signUpConsent;
+
         const { data, error } = await supabase
           .from("user_preferences")
           .select(
-            "prefers_halal, has_allergies, allergies, other_allergy"
+            "prefers_halal, has_allergies, allergies, other_allergy, submit_products_for_review"
           )
           .eq("user_id", user.id)
           .maybeSingle();
@@ -112,11 +131,24 @@ export default function PreferencesScreen({
         }
 
         if (!data) {
+          setSubmitProducts(fallbackConsent);
           return;
         }
 
         const saved =
           data as SavedPreferences;
+
+        // Edit mode: the database value is the source of truth.
+        // First setup: the choice just made on the Privacy Notice wins.
+        if (!isEditMode && routeConsent !== undefined) {
+          setSubmitProducts(routeConsent);
+        } else if (
+          typeof saved.submit_products_for_review === "boolean"
+        ) {
+          setSubmitProducts(saved.submit_products_for_review);
+        } else {
+          setSubmitProducts(fallbackConsent);
+        }
 
         const standardAllergies =
           Array.isArray(saved.allergies)
@@ -167,7 +199,7 @@ export default function PreferencesScreen({
         setLoadingSaved(false);
       }
     },
-    []
+    [isEditMode, routeConsent]
   );
 
   useFocusEffect(
@@ -331,6 +363,9 @@ export default function PreferencesScreen({
               customAllergies.length > 0
                 ? customAllergies.join(", ")
                 : null,
+            // Always saved as true or false.
+            submit_products_for_review:
+              submitProducts === true,
             updated_at:
               new Date().toISOString(),
           },
@@ -345,7 +380,7 @@ export default function PreferencesScreen({
 
       showMessage(
         "Saved successfully",
-        "Your allergy and halal preferences were updated."
+        "Your preferences were updated."
       );
 
       if (isEditMode) {
@@ -611,6 +646,40 @@ export default function PreferencesScreen({
           </View>
         )}
 
+        {/* Optional product-submission consent (saved with the form). */}
+        <View style={styles.submissionCard}>
+          <View style={styles.submissionRow}>
+            <Text style={styles.submissionTitle}>
+              Help improve LabelLens by sending scanned
+              products for verification
+            </Text>
+
+            <Switch
+              value={submitProducts}
+              onValueChange={setSubmitProducts}
+              disabled={loadingSaved}
+              trackColor={{
+                false: "#C9D4CC",
+                true: "#8FC9A5",
+              }}
+              thumbColor={
+                submitProducts ? "#197640" : "#F4F6F5"
+              }
+              accessibilityLabel="Send scanned products for verification"
+            />
+          </View>
+
+          <Text style={styles.submissionText}>
+            When this is on, the barcode, the product
+            information read from the label (name, brand,
+            ingredients and allergen statements) and the
+            package photos may be sent to LabelLens so the
+            developer can verify the product. Your allergy
+            profile is not sent. This is optional and you can
+            turn it off at any time.
+          </Text>
+        </View>
+
         <TouchableOpacity
           style={[
             styles.saveButton,
@@ -813,6 +882,37 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "800",
+  },
+
+  submissionCard: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DDE7E0",
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 22,
+  },
+
+  submissionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  submissionTitle: {
+    flex: 1,
+    color: "#163D2A",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+
+  submissionText: {
+    color: "#63776B",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 8,
   },
 
   saveButton: {

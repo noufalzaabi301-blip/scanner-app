@@ -2,7 +2,12 @@
 // lib/productProviders.ts
 // Connects the barcode lookup system to:
 // 1. The approved LabelLens product database.
-// 2. Open Food Facts as the fallback provider.
+// 2. Open Food Facts (API v3) as the fallback provider.
+//
+// Open Food Facts data is community-edited and NOT verified. A product is
+// only returned as "found" when its name, brand and ingredients look usable;
+// otherwise it is returned as "incomplete" so HomeScreen asks for package
+// photos. Open Food Facts records are never written to the approved table.
 // ---------------------------------------------------------------------------
 
 import { Platform } from "react-native";
@@ -40,7 +45,7 @@ function toResult(product: ProductInfo): ProviderResult {
 }
 
 // ---------------------------------------------------------------------------
-// APPROVED LABELหLENS PRODUCT DATABASE
+// APPROVED LABELLENS PRODUCT DATABASE (unchanged)
 // ---------------------------------------------------------------------------
 
 export const internalProvider: ProductProvider = {
@@ -74,10 +79,14 @@ export const internalProvider: ProductProvider = {
 };
 
 // ---------------------------------------------------------------------------
-// OPEN FOOD FACTS FALLBACK
+// OPEN FOOD FACTS FALLBACK (API v3)
 // ---------------------------------------------------------------------------
 
+const OPEN_FOOD_FACTS_SOURCE = "Open Food Facts — not verified";
+
 // Only request the fields used by the application.
+// Both the plain and the "_tags" names of the data-quality fields are
+// requested, so whichever Open Food Facts returns is available.
 const OPEN_FOOD_FACTS_FIELDS = [
   "product_name",
   "product_name_en",
@@ -89,7 +98,28 @@ const OPEN_FOOD_FACTS_FIELDS = [
   "traces_tags",
   "image_front_url",
   "image_url",
+  "completeness",
+  "data_quality_tags",
+  "data_quality_errors",
+  "data_quality_warnings",
+  "data_quality_errors_tags",
+  "data_quality_warnings_tags",
+  "last_modified_t",
 ].join(",");
+
+// Products below this completeness score (0–1) are treated as suspicious.
+// Completeness also counts nutrition and photos, so this is kept low.
+const MIN_COMPLETENESS = 0.2;
+
+// Values that mean "nothing useful was entered".
+const PLACEHOLDER_TEXT =
+  /^(unknown|n\/?a|none|null|undefined|test|tbd|todo|x+|-+|\?+|\.+|0+|no name|sans nom|inconnu|desconocido|غير معروف)$/i;
+
+// Data-quality errors that affect names, ingredients or allergens.
+const RELEVANT_QUALITY_ERROR = /ingredient|allergen|trace|product-name|brand/;
+
+// Tags such as "en:ingredients-80-percent-unknown".
+const UNKNOWN_INGREDIENTS_TAG = /ingredients-(\d+)-percent-unknown/;
 
 // Converts Open Food Facts tags such as "en:tree-nuts"
 // into readable text such as "Tree nuts".
@@ -114,7 +144,154 @@ function tagsToText(tags: unknown): string {
     .join(", ");
 }
 
-// Requests one barcode from Open Food Facts.
+// Reads a data-quality field that may be an array or a comma-separated string.
+function toTagList(value: unknown): string[] {
+  const items = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+    ? value.split(",")
+    : [];
+
+  return items
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+// True when a name or brand is obviously not real text.
+function isUnusableText(value: string): boolean {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+
+  if (cleaned.length < 2) {
+    return true;
+  }
+
+  if (PLACEHOLDER_TEXT.test(cleaned)) {
+    return true;
+  }
+
+  // Must contain at least one letter (rejects barcodes and numbers only).
+  if (!/\p{L}/u.test(cleaned)) {
+    return true;
+  }
+
+  // Broken characters from a bad import.
+  if (cleaned.includes("\uFFFD")) {
+    return true;
+  }
+
+  // Mostly symbols or digits.
+  const letters = (cleaned.match(/\p{L}/gu) ?? []).length;
+
+  return letters / cleaned.length < 0.4;
+}
+
+// True when the ingredient list is missing or obviously unusable.
+function ingredientsUnusable(value: string): boolean {
+  // Ignore a leading "Ingredients:" label when checking.
+  const body = value
+    .replace(
+      /^\s*(ingredients?|ingr[ée]dients?|zutaten|ingredientes|ingredienti|المكونات)\s*[:：\-]?\s*/i,
+      ""
+    )
+    .trim();
+
+  if (body.length < 3 || isUnusableText(body)) {
+    return true;
+  }
+
+  // Placeholders left by unreadable label text.
+  return /\?{2,}|_{3,}|\*{3,}/.test(body);
+}
+
+// Returns the reasons an Open Food Facts product cannot be trusted as complete.
+// An empty list means the product is usable (but still not verified).
+function validateOpenFoodFactsProduct(
+  mapped: ProductInfo,
+  raw: Record<string, unknown>
+): string[] {
+  const reasons: string[] = [];
+
+  if (!mapped.productName) {
+    reasons.push("missing product name");
+  } else if (isUnusableText(mapped.productName)) {
+    reasons.push("unusable product name");
+  }
+
+  if (!mapped.brandName) {
+    reasons.push("missing brand");
+  } else if (isUnusableText(mapped.brandName)) {
+    reasons.push("unusable brand");
+  }
+
+  if (!mapped.ingredients) {
+    reasons.push("missing ingredients");
+  } else if (ingredientsUnusable(mapped.ingredients)) {
+    reasons.push("unusable ingredients");
+  }
+
+  // Data-quality errors about names, ingredients or allergens.
+  const errorTags = [
+    ...toTagList(raw.data_quality_errors_tags),
+    ...toTagList(raw.data_quality_errors),
+  ];
+
+  const otherTags = [
+    ...toTagList(raw.data_quality_tags),
+    ...toTagList(raw.data_quality_warnings_tags),
+    ...toTagList(raw.data_quality_warnings),
+  ];
+
+  const relevantErrors = errorTags.filter((tag) =>
+    RELEVANT_QUALITY_ERROR.test(tag)
+  );
+
+  if (relevantErrors.length > 0) {
+    reasons.push(`data-quality errors: ${relevantErrors.join(", ")}`);
+  }
+
+  // Half or more of the ingredients were not recognised.
+  for (const tag of [...errorTags, ...otherTags]) {
+    const match = UNKNOWN_INGREDIENTS_TAG.exec(tag);
+
+    if (match && Number(match[1]) >= 50) {
+      reasons.push(`mostly unknown ingredients (${tag})`);
+      break;
+    }
+  }
+
+  // Very incomplete record.
+  const completeness =
+    typeof raw.completeness === "number"
+      ? raw.completeness
+      : Number(raw.completeness);
+
+  if (Number.isFinite(completeness) && completeness < MIN_COMPLETENESS) {
+    reasons.push(`low completeness (${completeness})`);
+  }
+
+  return reasons;
+}
+
+type OpenFoodFactsV3Response = {
+  status?: string; // "success", "success_with_warnings", "success_with_errors", "failure"
+  result?: { id?: string };
+  errors?: Array<{ message?: { id?: string } }>;
+  product?: Record<string, unknown>;
+};
+
+// True when a v3 "failure" response means the product does not exist.
+function isProductNotFound(json: OpenFoodFactsV3Response): boolean {
+  if (json.result?.id === "product_not_found") {
+    return true;
+  }
+
+  return (json.errors ?? []).some(
+    (error) => error?.message?.id === "product_not_found"
+  );
+}
+
+// Requests one barcode from Open Food Facts API v3.
 async function fetchOpenFoodFactsProduct(
   barcode: string
 ): Promise<ProviderResult> {
@@ -127,7 +304,7 @@ async function fetchOpenFoodFactsProduct(
 
   try {
     const url =
-      `https://world.openfoodfacts.org/api/v2/product/` +
+      `https://world.openfoodfacts.org/api/v3/product/` +
       `${encodeURIComponent(barcode)}.json?fields=` +
       `${encodeURIComponent(OPEN_FOOD_FACTS_FIELDS)}`;
 
@@ -159,13 +336,20 @@ async function fetchOpenFoodFactsProduct(
       };
     }
 
-    const json = (await response.json()) as {
-      status?: number;
-      product?: Record<string, unknown>;
-    };
+    const json = (await response.json()) as OpenFoodFactsV3Response;
 
-    // Open Food Facts uses status = 1 when a product exists.
-    if (json.status !== 1 || !json.product) {
+    if (json.status === "failure") {
+      if (isProductNotFound(json)) {
+        return { kind: "notfound" };
+      }
+
+      return {
+        kind: "unavailable",
+        message: "Open Food Facts could not return this product.",
+      };
+    }
+
+    if (!json.product) {
       return {
         kind: "notfound",
       };
@@ -195,18 +379,39 @@ async function fetchOpenFoodFactsProduct(
       ingredients,
       contains: tagsToText(product.allergens_tags),
       mayContain: tagsToText(product.traces_tags),
-      source:
-        "Open Food Facts — verify against the physical package.",
+      // Never labelled as an approved LabelLens product.
+      source: OPEN_FOOD_FACTS_SOURCE,
       imageUrl:
         text(product.image_front_url) ||
         text(product.image_url) ||
         null,
     };
 
-    return toResult(mappedProduct);
-  } catch (error) {
+    const problems = validateOpenFoodFactsProduct(mappedProduct, product);
+
+    // Incomplete or suspicious: HomeScreen starts the package-photo fallback.
+    if (problems.length > 0) {
+      console.info(
+        `Open Food Facts product ${barcode} treated as incomplete:`,
+        problems.join("; ")
+      );
+
+      return {
+        kind: "incomplete",
+        product: mappedProduct,
+      };
+    }
+
+    return {
+      kind: "found",
+      product: mappedProduct,
+    };
+  } catch (error: any) {
     // AbortError and network failures are both treated as unavailable.
-    console.warn("Open Food Facts request failed:", error);
+    console.warn(
+      "Open Food Facts request failed:",
+      typeof error?.message === "string" ? error.message : "unknown error"
+    );
 
     return {
       kind: "unavailable",

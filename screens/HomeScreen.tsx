@@ -312,10 +312,12 @@ function reviewReasonsFor(
   return [...new Set(reasons)];
 }
 
-// Loads the CURRENT user's allergies and halal setting from Supabase.
+// Loads the CURRENT user's allergies, halal setting and product-submission
+// consent from Supabase (the database is the source of truth).
 async function fetchUserPreferences(): Promise<{
   allergies: string[];
   prefersHalal: boolean;
+  submitProducts: boolean;
 }> {
   const {
     data: { user },
@@ -327,7 +329,9 @@ async function fetchUserPreferences(): Promise<{
 
   const { data, error } = await supabase
     .from("user_preferences")
-    .select("allergies, other_allergy, prefers_halal")
+    .select(
+      "allergies, other_allergy, prefers_halal, submit_products_for_review"
+    )
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -354,6 +358,7 @@ async function fetchUserPreferences(): Promise<{
   return {
     allergies: [...new Set(allergies)],
     prefersHalal: data?.prefers_halal === true,
+    submitProducts: data?.submit_products_for_review === true,
   };
 }
 
@@ -1304,7 +1309,7 @@ export default function HomeScreen({ navigation }: any) {
   // Allergy + halal screening of the confirmed product.
   // Checks ingredients, Contains, May contain, product name and brand.
   // Afterwards, the product is sent for verification in the background
-  // ONLY if the user turned that preference on (checked inside the helper).
+  // ONLY when user_preferences.submit_products_for_review is true.
   async function screenConfirmedProduct(confirmed: ProductData) {
     const runId = ++screeningRunId.current;
     setScreeningLoading(true);
@@ -1332,21 +1337,27 @@ export default function HomeScreen({ navigation }: any) {
         })
       );
 
-      // Background submission: never awaited, never shows errors,
-      // never blocks analysis or the Avoid List.
-      void submitProductForReview({
-        barcode: confirmed.barcode,
-        productName: asText(confirmed.productName),
-        brandName: asText(confirmed.brandName),
-        variant: asText(confirmed.variant),
-        ingredients: asText(confirmed.ingredients),
-        contains: asText(confirmed.contains),
-        mayContain: asText(confirmed.mayContain),
-        source: asText(confirmed.source),
-        frontPhotoUri: confirmed.frontPhotoUri,
-        ingredientsPhotoUri: confirmed.ingredientsPhotoUri,
-        imageUrl: confirmed.imageUrl ?? null,
-      });
+      // Background submission: only when the saved preference is on.
+      // Never awaited, never shows errors, never blocks analysis or the
+      // Avoid List. Duplicates are skipped inside the helper.
+      if (prefs.submitProducts) {
+        void submitProductForReview(
+          {
+            barcode: confirmed.barcode,
+            productName: asText(confirmed.productName),
+            brandName: asText(confirmed.brandName),
+            variant: asText(confirmed.variant),
+            ingredients: asText(confirmed.ingredients),
+            contains: asText(confirmed.contains),
+            mayContain: asText(confirmed.mayContain),
+            source: asText(confirmed.source),
+            frontPhotoUri: confirmed.frontPhotoUri,
+            ingredientsPhotoUri: confirmed.ingredientsPhotoUri,
+            imageUrl: confirmed.imageUrl ?? null,
+          },
+          { preferenceConfirmed: true }
+        );
+      }
     } catch (error) {
       if (runId !== screeningRunId.current) {
         return;

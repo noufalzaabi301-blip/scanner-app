@@ -109,61 +109,92 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function fieldOrFallback(value: string | null, fallback: string) {
-  const text = (value ?? "").trim();
-  return text || fallback;
+// ---------------------------------------------------------------------------
+// TEXT SHARING (compact summary)
+// Per product: number + name, brand, variant (if any), contains,
+// may contain, and halal screening (only when halal screening is on).
+// No barcode, reasons, ingredients, findings or dates.
+// ---------------------------------------------------------------------------
+
+// Trimmed single-line text.
+function cleanLine(value: string | null): string {
+  return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
-// ---------------------------------------------------------------------------
-// TEXT SHARING (unchanged)
-// ---------------------------------------------------------------------------
+// Comma-separated list without repeated items, ending with a full stop.
+// Empty lists become "None recorded."
+function cleanList(value: string | null): string {
+  const seen = new Set<string>();
 
-function buildShareText(selectedItems: AvoidItem[]): string {
+  const items = cleanLine(value)
+    .split(/[,;]+/)
+    .map((item) => item.trim().replace(/[.]+$/, "").trim())
+    .filter((item) => {
+      const key = item.toLowerCase();
+
+      if (!item || seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+
+  return items.length > 0 ? `${items.join(", ")}.` : "None recorded.";
+}
+
+// Halal status values that only mean "not checked".
+const HALAL_NOT_SELECTED = /halal screening not selected/i;
+
+function buildShareText(
+  selectedItems: AvoidItem[],
+  prefersHalal: boolean
+): string {
   const divider = "━━━━━━━━━━━━━━━━━━━━";
 
   const sections = selectedItems.map((item, index) => {
+    const name = (
+      cleanLine(item.product_name) || "Unnamed product"
+    ).toUpperCase();
+
     const lines = [
       divider,
-      `${index + 1}. ${fieldOrFallback(
-        item.product_name,
-        "Unnamed product"
-      ).toUpperCase()}`,
+      `${index + 1}. ${name}`,
       divider,
-      `Brand: ${fieldOrFallback(item.brand_name, "Not recorded")}`,
+      `Brand: ${cleanLine(item.brand_name) || "Not recorded"}`,
     ];
 
-    if (item.variant?.trim()) {
-      lines.push(`Variant: ${item.variant.trim()}`);
-    }
+    const variant = cleanLine(item.variant);
 
-    if (item.barcode?.trim()) {
-      lines.push(`Barcode: ${item.barcode.trim()}`);
+    if (variant) {
+      lines.push(`Variant: ${variant}`);
     }
 
     lines.push(
-      `Why it was saved: ${fieldOrFallback(
-        item.save_reason,
-        "Saved from product analysis."
-      )}`,
-      `Contains: ${fieldOrFallback(item.contains_text, "None recorded")}`,
-      `May contain: ${fieldOrFallback(
-        item.may_contain_text,
-        "None recorded"
-      )}`,
-      `Halal screening: ${fieldOrFallback(
-        item.halal_status,
-        "Not recorded"
-      )}`
+      `Contains: ${cleanList(item.contains_text)}`,
+      `May contain: ${cleanList(item.may_contain_text)}`
     );
+
+    if (prefersHalal) {
+      const halal = cleanLine(item.halal_status);
+
+      lines.push(
+        `Halal screening: ${
+          halal && !HALAL_NOT_SELECTED.test(halal)
+            ? halal
+            : "Not recorded"
+        }`
+      );
+    }
 
     return lines.join("\n");
   });
 
+  const count = selectedItems.length;
+
   return [
     "LabelLens – My Avoid List",
-    `${selectedItems.length} product${
-      selectedItems.length === 1 ? "" : "s"
-    }`,
+    `${count} product${count === 1 ? "" : "s"}`,
     "",
     sections.join("\n\n"),
     "",
@@ -175,7 +206,8 @@ function buildShareText(selectedItems: AvoidItem[]): string {
 // PDF DATA
 // ---------------------------------------------------------------------------
 
-// Loads the user's allergy profile and halal setting for the summary page.
+// Loads the user's allergy profile and halal setting
+// (used by the PDF summary page and the text summary).
 async function loadPdfProfile(): Promise<{
   allergies: string[];
   prefersHalal: boolean;
@@ -329,23 +361,37 @@ function createAvoidListPdfHtml(
   allergies: string[],
   prefersHalal: boolean
 ): string {
-  function value(
-    text: string | null | undefined,
-    fallback = "—"
-  ): string {
-    const clean = String(text ?? "").trim();
-    return escapeHtml(clean || fallback);
-  }
-
-  const productRows = items
+  const productSummary = items
     .map((item, index) => {
-      const imageHtml = item.imageDataUrl
+      const productName =
+        item.product_name || "Unnamed product";
+
+      const brand = item.brand_name
+        ? ` — ${item.brand_name}`
+        : "";
+
+      return `
+        <div class="summary-product">
+          <strong>${index + 1}.</strong>
+          ${escapeHtml(productName)}
+          ${escapeHtml(brand)}
+        </div>
+      `;
+    })
+    .join("");
+
+  const productPages = items
+    .map((item, index) => {
+      const productName =
+        item.product_name || "Unnamed product";
+
+      const image = item.imageDataUrl
         ? `
           <img
             class="product-image"
             src="${item.imageDataUrl}"
             alt="Product image"
-          />
+          >
         `
         : `
           <div class="image-placeholder">
@@ -354,65 +400,54 @@ function createAvoidListPdfHtml(
         `;
 
       return `
-        <tr>
-          <td class="number-cell">
-            ${index + 1}
-          </td>
+        <section class="product-page">
+          <div class="product-card">
+            ${image}
 
-          <td class="image-cell">
-            ${imageHtml}
-          </td>
-
-          <td class="product-cell">
-            <div class="product-name">
-              ${value(
-                item.product_name,
-                "Unnamed product"
-              )}
-            </div>
+            <h2>
+              ${index + 1}. ${escapeHtml(productName)}
+            </h2>
 
             ${
               item.brand_name
-                ? `
-                  <div class="product-line">
-                    <strong>Brand:</strong>
-                    ${value(item.brand_name)}
-                  </div>
-                `
+                ? `<p><strong>Brand:</strong>
+                    ${escapeHtml(item.brand_name)}</p>`
                 : ""
             }
 
             ${
               item.variant
-                ? `
-                  <div class="product-line">
-                    <strong>Variant:</strong>
-                    ${value(item.variant)}
-                  </div>
-                `
+                ? `<p><strong>Variant:</strong>
+                    ${escapeHtml(item.variant)}</p>`
                 : ""
             }
 
             ${
               item.barcode
+                ? `<p><strong>Barcode:</strong>
+                    ${escapeHtml(item.barcode)}</p>`
+                : ""
+            }
+
+            ${
+              item.save_reason
                 ? `
-                  <div class="product-line">
-                    <strong>Barcode:</strong>
-                    ${value(item.barcode)}
+                  <div class="warning-box">
+                    <strong>Why it was saved:</strong>
+                    <br>
+                    ${escapeHtml(item.save_reason)}
                   </div>
                 `
                 : ""
             }
-          </td>
 
-          <td class="screening-cell">
             ${
               item.contains_text
                 ? `
-                  <div class="screening-line">
+                  <p>
                     <strong>Contains:</strong>
-                    ${value(item.contains_text)}
-                  </div>
+                    ${escapeHtml(item.contains_text)}
+                  </p>
                 `
                 : ""
             }
@@ -420,10 +455,10 @@ function createAvoidListPdfHtml(
             ${
               item.may_contain_text
                 ? `
-                  <div class="screening-line">
+                  <p>
                     <strong>May contain:</strong>
-                    ${value(item.may_contain_text)}
-                  </div>
+                    ${escapeHtml(item.may_contain_text)}
+                  </p>
                 `
                 : ""
             }
@@ -431,15 +466,31 @@ function createAvoidListPdfHtml(
             ${
               item.halal_status
                 ? `
-                  <div class="screening-line halal">
-                    <strong>Halal:</strong>
-                    ${value(item.halal_status)}
+                  <p>
+                    <strong>Halal screening:</strong>
+                    ${escapeHtml(item.halal_status)}
+                  </p>
+                `
+                : ""
+            }
+
+            ${
+              item.ingredients_text
+                ? `
+                  <div class="ingredients-box">
+                    <strong>Ingredients:</strong>
+                    <br>
+                    ${escapeHtml(
+                      shortenIngredients(
+                        item.ingredients_text
+                      )
+                    )}
                   </div>
                 `
                 : ""
             }
-          </td>
-        </tr>
+          </div>
+        </section>
       `;
     })
     .join("");
@@ -448,7 +499,8 @@ function createAvoidListPdfHtml(
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
+  <title>LabelLens Avoid List</title>
 
   <style>
     @page {
@@ -462,166 +514,72 @@ function createAvoidListPdfHtml(
 
     body {
       margin: 0;
-      padding: 0;
-      background: #ffffff;
       color: #173d2a;
+      background: #ffffff;
       font-family: Arial, sans-serif;
-      font-size: 10px;
+      font-size: 11px;
     }
 
-    .page {
-      width: 100%;
+    .summary-page {
+      min-height: 100vh;
+      padding: 4px 0;
     }
 
     .title {
       color: #176b43;
       font-size: 24px;
-      font-weight: bold;
+      font-weight: 800;
       margin: 0 0 5px;
     }
 
     .selected-count {
       color: #40584a;
-      font-size: 10px;
-      margin-bottom: 18px;
+      font-size: 11px;
+      margin-bottom: 22px;
     }
 
-    .profile-box {
+    .summary-box {
       border: 1px solid #d7e3da;
-      border-radius: 7px;
-      padding: 10px;
-      margin-bottom: 10px;
+      border-radius: 8px;
+      padding: 13px;
+      margin-bottom: 12px;
     }
 
-    .profile-heading {
+    .summary-heading {
       color: #176b43;
-      font-size: 9px;
-      font-weight: bold;
-      letter-spacing: 0.5px;
-      margin-bottom: 4px;
-    }
-
-    .profile-text {
-      color: #1d3829;
       font-size: 10px;
-      line-height: 1.4;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      margin-bottom: 5px;
     }
 
-    .section-title {
+    .summary-text {
+      color: #1d3829;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .products-heading {
       color: #176b43;
       font-size: 14px;
-      font-weight: bold;
+      font-weight: 800;
       border-bottom: 2px solid #176b43;
       padding-bottom: 5px;
-      margin-top: 20px;
-      margin-bottom: 0;
+      margin-top: 25px;
+      margin-bottom: 7px;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-      margin-top: 0;
-    }
-
-    thead {
-      display: table-header-group;
-    }
-
-    th {
-      background: #e8f5e9;
-      color: #176b43;
-      font-size: 9px;
-      font-weight: bold;
-      text-align: left;
-      padding: 7px 5px;
-      border-bottom: 1px solid #bcd2c2;
-    }
-
-    td {
-      vertical-align: top;
-      border-bottom: 1px solid #dce7df;
-      padding: 8px 5px;
-      page-break-inside: avoid;
-    }
-
-    tr {
-      page-break-inside: avoid;
-    }
-
-    .number-cell {
-      width: 5%;
-      color: #176b43;
-      font-weight: bold;
-      text-align: center;
-    }
-
-    .image-cell {
-      width: 18%;
-      text-align: center;
-    }
-
-    .product-cell {
-      width: 32%;
-    }
-
-    .screening-cell {
-      width: 45%;
+    .summary-product {
       color: #1d3829;
-      line-height: 1.4;
-    }
-
-    .product-image {
-      display: block;
-      width: 62px;
-      height: 62px;
-      object-fit: contain;
-      margin: 0 auto;
-      border-radius: 5px;
-      background: #f1f5f2;
-    }
-
-    .image-placeholder {
-      width: 62px;
-      height: 62px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      margin: 0 auto;
-      border-radius: 5px;
-      background: #f1f5f2;
-      color: #738277;
-      font-size: 8px;
-    }
-
-    .product-name {
-      color: #176b43;
-      font-size: 12px;
-      font-weight: bold;
-      line-height: 1.25;
-      margin-bottom: 5px;
-    }
-
-    .product-line {
-      color: #1d3829;
-      font-size: 9px;
-      line-height: 1.35;
-      margin-bottom: 2px;
-    }
-
-    .screening-line {
-      margin-bottom: 5px;
-    }
-
-    .halal {
-      color: #806300;
+      font-size: 11px;
+      padding: 6px 0;
+      border-bottom: 1px solid #e4ebe6;
     }
 
     .footer {
       border-top: 1px solid #d7e3da;
-      margin-top: 14px;
-      padding-top: 8px;
+      margin-top: 20px;
+      padding-top: 10px;
       color: #176b43;
       font-size: 9px;
       line-height: 1.4;
@@ -630,14 +588,80 @@ function createAvoidListPdfHtml(
     .footer-note {
       color: #40584a;
     }
+
+    .product-page {
+      page-break-before: always;
+      padding-top: 4px;
+    }
+
+    .product-card {
+      border: 1px solid #d7e3da;
+      border-radius: 9px;
+      padding: 14px;
+      page-break-inside: avoid;
+    }
+
+    .product-image {
+      display: block;
+      width: 150px;
+      height: 150px;
+      object-fit: contain;
+      margin: 0 auto 14px;
+      border-radius: 8px;
+      background: #f1f5f2;
+    }
+
+    .image-placeholder {
+      width: 150px;
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      margin: 0 auto 14px;
+      border-radius: 8px;
+      background: #f1f5f2;
+      color: #738277;
+      font-size: 11px;
+    }
+
+    h2 {
+      color: #176b43;
+      font-size: 18px;
+      margin: 0 0 12px;
+    }
+
+    p {
+      color: #1d3829;
+      font-size: 11px;
+      line-height: 1.5;
+      margin: 7px 0;
+    }
+
+    .warning-box {
+      background: #fff3d6;
+      border-radius: 7px;
+      padding: 9px;
+      margin: 12px 0;
+      color: #604b00;
+      line-height: 1.5;
+    }
+
+    .ingredients-box {
+      border: 1px solid #d7e3da;
+      border-radius: 7px;
+      padding: 9px;
+      margin-top: 12px;
+      color: #1d3829;
+      font-size: 10px;
+      line-height: 1.5;
+    }
   </style>
 </head>
 
 <body>
-  <main class="page">
-    <h1 class="title">
-      LabelLens Avoid List
-    </h1>
+  <section class="summary-page">
+    <h1 class="title">LabelLens Avoid List</h1>
 
     <div class="selected-count">
       ${items.length} product${
@@ -645,12 +669,12 @@ function createAvoidListPdfHtml(
       } selected
     </div>
 
-    <div class="profile-box">
-      <div class="profile-heading">
+    <div class="summary-box">
+      <div class="summary-heading">
         ALLERGY PROFILE
       </div>
 
-      <div class="profile-text">
+      <div class="summary-text">
         ${
           allergies.length > 0
             ? escapeHtml(allergies.join(", "))
@@ -659,47 +683,33 @@ function createAvoidListPdfHtml(
       </div>
     </div>
 
-    <div class="profile-box">
-      <div class="profile-heading">
+    <div class="summary-box">
+      <div class="summary-heading">
         HALAL SCREENING
       </div>
 
-      <div class="profile-text">
+      <div class="summary-text">
         ${prefersHalal ? "On" : "Off"}
       </div>
     </div>
 
-    <div class="section-title">
+    <div class="products-heading">
       Selected products
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th class="number-cell">#</th>
-          <th class="image-cell">Photo</th>
-          <th class="product-cell">Product</th>
-          <th class="screening-cell">
-            Screening summary
-          </th>
-        </tr>
-      </thead>
-
-      <tbody>
-        ${productRows}
-      </tbody>
-    </table>
+    ${productSummary}
 
     <div class="footer">
       <strong>Generated by LabelLens.</strong>
-      <br />
-
+      <br>
       <span class="footer-note">
         This information is for screening support only.
         Always check the physical package.
       </span>
     </div>
-  </main>
+  </section>
+
+  ${productPages}
 </body>
 </html>
   `;
@@ -1039,7 +1049,9 @@ export default function AvoidListScreen({
   }
 
   async function shareAsText(selectedItems: AvoidItem[]) {
-    const message = buildShareText(selectedItems);
+    // The halal line is only included when halal screening is on.
+    const profile = await loadPdfProfile();
+    const message = buildShareText(selectedItems, profile.prefersHalal);
 
     if (Platform.OS === "web") {
       const nav = (globalThis as any).navigator;

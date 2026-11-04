@@ -12,10 +12,22 @@ import {
 } from "react-native";
 
 import { supabase } from "../lib/supabase";
+import {
+  clearPendingSubmissionConsent,
+  readPendingSubmissionConsent,
+} from "../lib/productSubmissionConsent";
 
 export default function RegisterScreen({
   navigation,
+  route,
 }: any) {
+  // Consent passed directly (if any). Otherwise the choice saved on the
+  // Privacy Notice before the account existed is used.
+  const routeConsent: boolean | undefined =
+    typeof route?.params?.submitProductsForReview === "boolean"
+      ? route.params.submitProductsForReview
+      : undefined;
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -80,6 +92,11 @@ export default function RegisterScreen({
     setLoading(true);
 
     try {
+      const submitProductsForReview =
+        routeConsent ??
+        (await readPendingSubmissionConsent()) ??
+        false;
+
       const { data, error } =
         await supabase.auth.signUp({
           email: cleanEmail,
@@ -90,9 +107,14 @@ export default function RegisterScreen({
               last_name: cleanLastName,
               full_name: `${cleanFirstName} ${cleanLastName}`,
               privacy_accepted: true,
-              privacy_version: "1.0",
+              privacy_version: "1.2",
               privacy_accepted_at:
                 new Date().toISOString(),
+              // Kept with the account so the choice survives email
+              // verification. PreferencesScreen saves it to
+              // user_preferences, which is the final source of truth.
+              submit_products_for_review:
+                submitProductsForReview,
             },
           },
         });
@@ -105,8 +127,13 @@ export default function RegisterScreen({
         return;
       }
 
+      // The account now holds the choice; the phone copy is no longer needed.
+      await clearPendingSubmissionConsent();
+
       if (data.session) {
-        navigation.replace("Preferences");
+        navigation.replace("Preferences", {
+          submitProductsForReview,
+        });
       } else {
         showMessage(
           "Verify your email",
