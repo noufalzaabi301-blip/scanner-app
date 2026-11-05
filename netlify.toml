@@ -1,0 +1,20 @@
+# Netlify web deployment of LabelLens (Expo web export).
+# Netlify builds from your latest GitHub commit; COMMIT_REF is that commit.
+# It is shown at the bottom of the developer page ("build abc1234") so you
+# can confirm the deployed page matches GitHub.
+#
+# In Netlify → Site configuration → Environment variables, add the four
+# EXPO_PUBLIC_... values from .env.example (publishable keys only).
+
+[build]
+  command = "EXPO_PUBLIC_BUILD_ID=$COMMIT_REF npx expo export --platform web"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Single-page app: every path loads index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

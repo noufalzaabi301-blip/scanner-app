@@ -1,13 +1,24 @@
 // ---------------------------------------------------------------------------
 // screens/AdminProductSubmissionsScreen.tsx
-// Admin-only review of pending product submissions.
+// DEVELOPER review screen (route "AdminProductSubmissions" in App.tsx).
+// This is the only developer page in the app; Netlify web builds and the
+// phone app both use it.
 //
-// Security: hiding this screen from non-admins is only a convenience.
-// The real protection is (1) RLS on product_submissions, which lets only
-// rows in admin_users read other users' submissions, and (2) the
-// approve/reject Edge Functions, which re-check is_admin() on the server.
-// Approval must run in an Edge Function because inserting into the FOOD
-// database needs its service-role key, which must never ship in the app.
+// Who can use it: users listed in the USER database table admin_users.
+// App.tsx only registers the route for them, and this screen re-checks it.
+//
+// Buttons and where they write:
+//   Save draft          → USER database public.product_submissions only
+//   Approve for scanner → supabase.functions.invoke("approve-product-submission")
+//                         The Edge Function (server) inserts into the FOOD
+//                         database public.products with the food service-role
+//                         key. The app never writes to public.products.
+//   Reject              → reject-product-submission Edge Function
+//   Refresh             → reloads pending submissions
+//
+// Security: hiding this screen is only a convenience. RLS on
+// product_submissions and the admin checks inside the Edge Functions are
+// what actually protect the data.
 // ---------------------------------------------------------------------------
 
 import { useCallback, useState } from "react";
@@ -18,12 +29,19 @@ import {
   StyleSheet,
 } from "react-native";
 
-import { callReviewFunction, isCurrentUserAdmin } from "../lib/adminAccess";
-import { useI18n } from "../lib/i18n";
+import {
+  approveSubmissionForScanner,
+  callReviewFunction,
+  isCurrentUserAdmin,
+  saveSubmissionDraft,
+  type SubmissionDraft,
+} from "../lib/adminAccess";
+import { useI18n, type TranslationKey } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
 import { confirmAction } from "../lib/ui/messages";
 import {
   ContextSafeAreaView as SafeAreaView,
+  Ionicons,
   ScrollView,
   Text,
   TextInput,
@@ -31,15 +49,8 @@ import {
   View,
 } from "../components/Themed";
 
-type Submission = {
+type Submission = SubmissionDraft & {
   id: string;
-  barcode: string | null;
-  product_name: string | null;
-  brand_name: string | null;
-  variant: string | null;
-  ingredients_text: string | null;
-  contains_text: string | null;
-  may_contain_text: string | null;
   front_photo_url: string | null;
   ingredients_photo_url: string | null;
   source: string | null;
@@ -47,9 +58,44 @@ type Submission = {
 };
 
 type Banner = { kind: "success" | "error"; text: string } | null;
+type BusyAction = "save" | "approve" | "reject";
 
 const BUCKET = "product-submissions";
 
+// Set by netlify.toml (EXPO_PUBLIC_BUILD_ID=$COMMIT_REF) so you can confirm
+// which GitHub commit the deployed developer page was built from.
+const BUILD_ID = (process.env.EXPO_PUBLIC_BUILD_ID ?? "").slice(0, 7) || "local";
+
+const DRAFT_FIELDS: {
+  key: keyof SubmissionDraft;
+  label: TranslationKey;
+  multiline?: boolean;
+  numeric?: boolean;
+}[] = [
+  { key: "product_name", label: "admin.fieldName" },
+  { key: "brand_name", label: "admin.fieldBrand" },
+  { key: "variant", label: "admin.fieldVariant" },
+  { key: "barcode", label: "admin.fieldBarcode", numeric: true },
+  { key: "ingredients_text", label: "admin.ingredients", multiline: true },
+  { key: "contains_text", label: "admin.contains", multiline: true },
+  { key: "may_contain_text", label: "admin.mayContain", multiline: true },
+];
+
+function toDraft(row: Submission): SubmissionDraft {
+  return {
+    barcode: row.barcode ?? "",
+    product_name: row.product_name ?? "",
+    brand_name: row.brand_name ?? "",
+    variant: row.variant ?? "",
+    ingredients_text: row.ingredients_text ?? "",
+    contains_text: row.contains_text ?? "",
+    may_contain_text: row.may_contain_text ?? "",
+  };
+}
+
+function sameDraft(a: SubmissionDraft, b: SubmissionDraft): boolean {
+  return DRAFT_FIELDS.every(({ key }) => a[key].trim() === b[key].trim());
+}
 
 // Storage paths become signed URLs; web URLs (Open Food Facts) stay as-is.
 async function photoUrl(value: string | null): Promise<string | null> {
@@ -72,15 +118,21 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
   const { t } = useI18n();
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, SubmissionDraft>>({});
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<{ id: string; action: BusyAction } | null>(
+    null
+  );
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [banner, setBanner] = useState<Banner>(null);
+
+  // ----- Load pending submissions (user database) ------------------------
 
   const loadSubmissions = useCallback(async () => {
     setLoading(true);
 
     try {
+      // Developers are identified ONLY through user-database admin_users.
       const admin = await isCurrentUserAdmin();
       setAuthorized(admin);
 
@@ -102,14 +154,16 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
       }
 
       const rows = await Promise.all(
-        ((data ?? []) as Submission[]).map(async (row) => ({
+        ((data ?? []) as any[]).map(async (row) => ({
           ...row,
+          ...toDraft(row),
           front_photo_url: await photoUrl(row.front_photo_url),
           ingredients_photo_url: await photoUrl(row.ingredients_photo_url),
         }))
       );
 
-      setSubmissions(rows);
+      setSubmissions(rows as Submission[]);
+      setDrafts(Object.fromEntries(rows.map((row) => [row.id, toDraft(row as Submission)])));
     } catch (error: any) {
       setBanner({
         kind: "error",
@@ -118,6 +172,7 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useFocusEffect(
@@ -126,15 +181,47 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
     }, [loadSubmissions])
   );
 
-  async function approve(item: Submission) {
-    if (busyId) {
+  function updateDraft(id: string, key: keyof SubmissionDraft, value: string) {
+    setDrafts((current) => ({
+      ...current,
+      [id]: { ...current[id], [key]: value },
+    }));
+  }
+
+  // ----- Save draft: USER database only -----------------------------------
+
+  async function saveDraft(item: Submission) {
+    if (busy) {
       return;
     }
+
+    setBusy({ id: item.id, action: "save" });
+    setBanner(null);
+
+    try {
+      await saveSubmissionDraft(item.id, drafts[item.id] ?? toDraft(item));
+      setBanner({ kind: "success", text: t("admin.draftSaved") });
+      await loadSubmissions();
+    } catch (error: any) {
+      setBanner({ kind: "error", text: error?.message || t("admin.draftFailed") });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // ----- Approve for scanner: Edge Function only --------------------------
+
+  async function approve(item: Submission) {
+    if (busy) {
+      return;
+    }
+
+    const draft = drafts[item.id] ?? toDraft(item);
 
     const confirmed = await confirmAction(
       t("admin.approveTitle"),
       t("admin.approveBody", {
-        name: item.product_name || t("admin.thisProduct"),
+        name: draft.product_name || t("admin.thisProduct"),
       })
     );
 
@@ -142,31 +229,34 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
       return;
     }
 
-    setBusyId(item.id);
+    setBusy({ id: item.id, action: "approve" });
     setBanner(null);
 
-    // The app never writes to the food database. The Edge Function checks
-    // admin rights, validates the product, rejects duplicate barcodes and
-    // inserts it with the food database's service-role key (server only).
-    // If it fails, the submission stays "pending" and the real error from
-    // the function is shown.
     try {
-      await callReviewFunction("approve-product-submission", {
-        submission_id: item.id,
-      });
+      // Unsaved corrections are first saved to product_submissions, because
+      // the Edge Function reads the submission from the user database.
+      if (!sameDraft(draft, toDraft(item))) {
+        await saveSubmissionDraft(item.id, draft);
+      }
+
+      // Calls supabase.functions.invoke("approve-product-submission",
+      //   { body: { submission_id: item.id } })
+      await approveSubmissionForScanner(item.id);
 
       setBanner({ kind: "success", text: t("admin.approvedSuccess") });
     } catch (error: any) {
+      // The submission stays pending; show the real error from the server.
       setBanner({ kind: "error", text: error?.message || t("admin.approveFailed") });
     } finally {
-      setBusyId(null);
-      // Approved items disappear; failed ones are still listed as pending.
+      setBusy(null);
       await loadSubmissions();
     }
   }
 
+  // ----- Reject: Edge Function only ---------------------------------------
+
   async function reject(item: Submission) {
-    if (busyId) {
+    if (busy) {
       return;
     }
 
@@ -182,7 +272,7 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
       return;
     }
 
-    setBusyId(item.id);
+    setBusy({ id: item.id, action: "reject" });
     setBanner(null);
 
     try {
@@ -200,12 +290,12 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
     } catch (error: any) {
       setBanner({ kind: "error", text: error?.message || t("admin.rejectFailed") });
     } finally {
-      setBusyId(null);
+      setBusy(null);
       await loadSubmissions();
     }
   }
 
-  // ----- Not an admin -----
+  // ----- Not a developer -----
   if (authorized === false) {
     return (
       <SafeAreaView style={styles.centerPage} edges={["left", "right", "bottom"]}>
@@ -224,8 +314,29 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.page} edges={["left", "right", "bottom"]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>{t("admin.title")}</Text>
-        <Text style={styles.subtitle}>{t("admin.subtitle")}</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>{t("admin.title")}</Text>
+            <Text style={styles.subtitle}>{t("admin.subtitle")}</Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.refreshButton, (loading || !!busy) && styles.disabled]}
+            onPress={() => {
+              setBanner(null);
+              void loadSubmissions();
+            }}
+            disabled={loading || !!busy}
+            accessibilityLabel={t("admin.refresh")}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#176B43" />
+            ) : (
+              <Ionicons name="refresh" size={18} color="#176B43" />
+            )}
+            <Text style={styles.refreshText}>{t("admin.refresh")}</Text>
+          </TouchableOpacity>
+        </View>
 
         {banner ? (
           <View
@@ -247,11 +358,7 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
         ) : null}
 
         {loading && submissions.length === 0 ? (
-          <ActivityIndicator
-            size="large"
-            color="#176B43"
-            style={styles.loader}
-          />
+          <ActivityIndicator size="large" color="#176B43" style={styles.loader} />
         ) : null}
 
         {!loading && submissions.length === 0 ? (
@@ -261,7 +368,10 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
         ) : null}
 
         {submissions.map((item) => {
-          const busy = busyId === item.id;
+          const draft = drafts[item.id] ?? toDraft(item);
+          const itemBusy = busy?.id === item.id ? busy.action : null;
+          const locked = !!busy;
+          const changed = !sameDraft(draft, toDraft(item));
 
           return (
             <View key={item.id} style={styles.card}>
@@ -287,39 +397,54 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
                 )}
               </View>
 
-              <Text style={styles.name}>
-                {item.product_name || t("admin.unnamed")}
-              </Text>
-
-              <Text style={styles.meta}>
-                {t("admin.brand", { value: item.brand_name || t("admin.notRecorded") })}
-              </Text>
-              <Text style={styles.meta}>
-                {t("admin.barcode", { value: item.barcode || t("admin.notRecorded") })}
-              </Text>
-              {item.variant ? (
-                <Text style={styles.meta}>
-                  {t("admin.variant", { value: item.variant })}
-                </Text>
-              ) : null}
               <Text style={styles.meta}>
                 {t("admin.source", { value: item.source || t("admin.notRecorded") })}
               </Text>
 
-              <Text style={styles.heading}>{t("admin.ingredients")}</Text>
-              <Text style={styles.body}>
-                {item.ingredients_text || t("admin.notRecorded")}
-              </Text>
+              {/* Editable draft: saved only to product_submissions. */}
+              {DRAFT_FIELDS.map((field) => (
+                <View key={field.key}>
+                  <Text style={styles.heading}>{t(field.label)}</Text>
+                  <TextInput
+                    style={[styles.fieldInput, field.multiline && styles.fieldMultiline]}
+                    value={draft[field.key]}
+                    onChangeText={(value) => updateDraft(item.id, field.key, value)}
+                    multiline={field.multiline}
+                    keyboardType={field.numeric ? "number-pad" : "default"}
+                    editable={!locked}
+                    placeholderTextColor="#8A9A91"
+                    placeholder={t("admin.notRecorded")}
+                  />
+                </View>
+              ))}
 
-              <Text style={styles.heading}>{t("admin.contains")}</Text>
-              <Text style={styles.body}>
-                {item.contains_text || t("admin.noneRecorded")}
-              </Text>
+              {changed ? (
+                <Text style={styles.unsaved}>{t("admin.unsavedChanges")}</Text>
+              ) : null}
 
-              <Text style={styles.heading}>{t("admin.mayContain")}</Text>
-              <Text style={styles.body}>
-                {item.may_contain_text || t("admin.noneRecorded")}
-              </Text>
+              <TouchableOpacity
+                style={[styles.draftButton, locked && styles.disabled]}
+                onPress={() => void saveDraft(item)}
+                disabled={locked}
+              >
+                {itemBusy === "save" ? (
+                  <ActivityIndicator color="#176B43" />
+                ) : (
+                  <Text style={styles.draftText}>{t("admin.saveDraft")}</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.approveButton, locked && styles.disabled]}
+                onPress={() => void approve(item)}
+                disabled={locked}
+              >
+                {itemBusy === "approve" ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.approveText}>{t("admin.approve")}</Text>
+                )}
+              </TouchableOpacity>
 
               <TextInput
                 style={styles.notesInput}
@@ -330,31 +455,27 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
                 placeholder={t("admin.notesPlaceholder")}
                 placeholderTextColor="#8A9A91"
                 multiline
-                editable={!busy}
+                editable={!locked}
               />
 
               <TouchableOpacity
-                style={[styles.approveButton, busy && styles.disabled]}
-                onPress={() => void approve(item)}
-                disabled={busy || busyId !== null}
-              >
-                {busy ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.approveText}>{t("admin.approve")}</Text>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.rejectButton, busy && styles.disabled]}
+                style={[styles.rejectButton, locked && styles.disabled]}
                 onPress={() => void reject(item)}
-                disabled={busy || busyId !== null}
+                disabled={locked}
               >
-                <Text style={styles.rejectText}>{t("admin.reject")}</Text>
+                {itemBusy === "reject" ? (
+                  <ActivityIndicator color="#B42318" />
+                ) : (
+                  <Text style={styles.rejectText}>{t("admin.reject")}</Text>
+                )}
               </TouchableOpacity>
             </View>
           );
         })}
+
+        <Text style={styles.buildMarker}>
+          {t("admin.buildMarker", { build: BUILD_ID })}
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -369,6 +490,51 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  headerText: { flex: 1 },
+  refreshButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#176B43",
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  refreshText: { color: "#176B43", fontWeight: "700", fontSize: 13 },
+  fieldInput: {
+    borderWidth: 1,
+    borderColor: "#B9C9BD",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: "#17452F",
+    fontSize: 13,
+    backgroundColor: "#FFFFFF",
+  },
+  fieldMultiline: { minHeight: 70, textAlignVertical: "top" },
+  unsaved: { color: "#755515", fontSize: 12, marginTop: 10 },
+  draftButton: {
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#176B43",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 14,
+  },
+  draftText: { color: "#176B43", fontWeight: "800" },
+  buildMarker: {
+    color: "#8A9A91",
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 16,
   },
   title: { color: "#176B43", fontSize: 24, fontWeight: "800" },
   subtitle: { color: "#63776B", fontSize: 13, marginTop: 4, marginBottom: 14 },

@@ -91,6 +91,77 @@ export async function callReviewFunction(
 
   return data.message ?? "Done.";
 }
+// Fields a developer may correct before approval. These are written ONLY to
+// the user database (public.product_submissions), never to the food DB.
+export type SubmissionDraft = {
+  barcode: string;
+  product_name: string;
+  brand_name: string;
+  variant: string;
+  ingredients_text: string;
+  contains_text: string;
+  may_contain_text: string;
+};
+
+// "Save draft": updates the pending submission row in the USER database.
+// RLS must allow admins (admin_users) to update product_submissions; see
+// supabase/sql/user_database_developer_review.sql.
+export async function saveSubmissionDraft(
+  submissionId: string,
+  draft: SubmissionDraft
+): Promise<void> {
+  const clean = (value: string) => value.replace(/\s+/g, " ").trim() || null;
+
+  const { data, error } = await supabase
+    .from("product_submissions")
+    .update({
+      barcode: draft.barcode.replace(/\D/g, "") || null,
+      product_name: clean(draft.product_name),
+      brand_name: clean(draft.brand_name),
+      variant: clean(draft.variant),
+      ingredients_text: clean(draft.ingredients_text),
+      contains_text: clean(draft.contains_text),
+      may_contain_text: clean(draft.may_contain_text),
+    })
+    .eq("id", submissionId)
+    .eq("verification_status", "pending")
+    .select("id");
+
+  if (error) {
+    throw new Error(`Draft not saved: ${error.message}`);
+  }
+
+  // RLS returns zero rows (not an error) when an update is not allowed.
+  if (!data || data.length === 0) {
+    throw new Error(
+      "Draft not saved: the submission is no longer pending, or your account is not allowed to edit submissions (check admin_users and the developer review policy)."
+    );
+  }
+}
+
+// "Approve for scanner": the ONLY way a product reaches the food database.
+// The Edge Function verifies admin_users, validates the submission, inserts
+// into food-DB public.products with FOOD_SUPABASE_SERVICE_ROLE_KEY and then
+// marks the submission approved. Throws the function's real error message.
+export async function approveSubmissionForScanner(
+  submissionId: string
+): Promise<string> {
+  const { data, error } = await supabase.functions.invoke(
+    "approve-product-submission",
+    { body: { submission_id: submissionId } }
+  );
+
+  if (error) {
+    throw new Error(await readFunctionError(error));
+  }
+
+  if (!data?.ok) {
+    throw new Error(data?.error || "Approval failed. The submission is still pending.");
+  }
+
+  return data.message ?? "Approved and added to scanner database";
+}
+
 // Extracts the message from a failed functions.invoke() call.
 // - FunctionsHttpError: the function answered with an error status; its
 //   JSON body holds { ok: false, error: "..." }.

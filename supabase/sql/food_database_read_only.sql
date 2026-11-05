@@ -19,6 +19,10 @@ revoke insert, update, delete, truncate, references, trigger
 
 grant select on table public.products to anon, authenticated;
 
+-- The approve-product-submission Edge Function connects as service_role.
+-- Make sure it can still write (it bypasses RLS but needs table grants).
+grant select, insert, update, delete on table public.products to service_role;
+
 -- 2. Row Level Security: only approved products are visible.
 alter table public.products enable row level security;
 

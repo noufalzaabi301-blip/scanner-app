@@ -78,9 +78,10 @@ Deno.serve(async (req) => {
 
   try {
     userDb = userDbAdmin();
-    const foodDb = foodDbAdmin();
 
+    // Developer check first: only users in user-DB admin_users continue.
     const adminId = await requireAdmin(req, userDb);
+    const foodDb = foodDbAdmin();
     const { id } = await readRequest(req);
 
     // 1. Claim the submission atomically: only ONE request can move it
@@ -170,6 +171,15 @@ Deno.serve(async (req) => {
 
     if (insertError) {
       await releaseClaim();
+
+      // 42501 = permission denied: the secret is not the food project's
+      // service-role key, or table grants for service_role were removed.
+      if ((insertError as any).code === "42501") {
+        throw new HttpError(
+          500,
+          `Food database refused the insert (${insertError.message}). Check that FOOD_SUPABASE_SERVICE_ROLE_KEY is the FOOD project's service-role key and run supabase/sql/food_database_read_only.sql (it grants service_role access).`
+        );
+      }
 
       if ((insertError as any).code === "23505") {
         throw new HttpError(

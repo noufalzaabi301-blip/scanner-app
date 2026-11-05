@@ -55,13 +55,43 @@ export function userDbAdmin(): SupabaseClient {
   );
 }
 
-// Separate food database.
+// Separate food database, with its SERVICE-ROLE (secret) key.
+// A common cause of "permission denied for table products" is putting the
+// food project's publishable/anon key into this secret by mistake, so the
+// key type is checked and a clear error is returned instead.
 export function foodDbAdmin(): SupabaseClient {
-  return createClient(
-    requireEnv("FOOD_SUPABASE_URL"),
-    requireEnv("FOOD_SUPABASE_SERVICE_ROLE_KEY"),
-    clientOptions
-  );
+  const key = requireEnv("FOOD_SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!isServiceRoleKey(key)) {
+    throw new HttpError(
+      500,
+      "FOOD_SUPABASE_SERVICE_ROLE_KEY is not a service-role (secret) key of the food database. Set it with: supabase secrets set FOOD_SUPABASE_SERVICE_ROLE_KEY=..."
+    );
+  }
+
+  return createClient(requireEnv("FOOD_SUPABASE_URL"), key, clientOptions);
+}
+
+// New-style secret keys start with "sb_secret_"; legacy keys are JWTs whose
+// payload has role "service_role".
+function isServiceRoleKey(key: string): boolean {
+  if (key.startsWith("sb_secret_")) {
+    return true;
+  }
+
+  if (key.startsWith("sb_publishable_")) {
+    return false;
+  }
+
+  try {
+    const payload = key.split(".")[1];
+    const decoded = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
+    );
+    return decoded?.role === "service_role";
+  } catch {
+    return false;
+  }
 }
 
 // Returns the admin's user ID, or throws 401 / 403.

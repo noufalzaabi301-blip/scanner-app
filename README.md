@@ -27,6 +27,8 @@ Developed as a project at **United Arab Emirates University**.
 - [Architecture](#architecture)
 - [Project structure](#project-structure)
 - [Getting started](#getting-started)
+- [Deploying the web version on Netlify](#deploying-the-web-version-on-netlify)
+- [Normal users and developers](#normal-users-and-developers)
 - [Supabase setup](#supabase-setup)
 - [Edge Functions](#edge-functions)
 - [Testing](#testing)
@@ -125,6 +127,7 @@ Admin ──► approve-product-submission (Edge Function, service-role keys as 
 
 ```
 .env.example                 Environment variable names (copy to .env)
+netlify.toml                 Netlify web build settings
 App.tsx                      Navigation, start screen, language + theme providers
 components/
   BottomNavigation.tsx       Shared footer (Scan / Avoid / Profile)
@@ -153,6 +156,9 @@ lib/
     screeningText.ts         Shows screening results in Arabic
     foodGlossary.ts          Built-in English ↔ Arabic food dictionary
 screens/                     One file per screen
+supabase/sql/
+  user_database_developer_review.sql   admin_users + submission policies
+  food_database_read_only.sql          food DB: read-only for the app
 supabase/functions/
   approve-product-submission/
   reject-product-submission/
@@ -241,6 +247,49 @@ For iOS, EAS asks for an app identifier (for example
 `com.yourname.labellens`; you can also set it as `ios.bundleIdentifier` in
 `app.json`) and for your Apple ID, then manages certificates for you. Apple
 credentials are never stored in this repository.
+
+---
+
+## Deploying the web version on Netlify
+
+`netlify.toml` is included, so Netlify needs no manual build settings:
+
+1. In Netlify, **Add new site → Import an existing project** and pick this
+   GitHub repository (or open your existing site and check
+   **Site configuration → Build & deploy → Repository** points to it, on the
+   right branch).
+2. **Site configuration → Environment variables**: add the four
+   `EXPO_PUBLIC_...` values from `.env.example`.
+3. Push to GitHub. Netlify runs `npx expo export --platform web` and
+   publishes `dist/`.
+4. **Check the deployed commit:** open the developer page and look at the
+   bottom line, `Developer page · secure approval · build abc1234`. It must
+   match the latest commit hash on GitHub (also shown in Netlify →
+   Deploys). If it says something else, or the page has no such line,
+   Netlify is serving an old build or another repository: trigger
+   **Deploys → Trigger deploy → Clear cache and deploy site**.
+
+---
+
+## Normal users and developers
+
+| | Normal users | Developers (`admin_users`) |
+|---|---|---|
+| Scan products, Avoid List | ✅ | ✅ |
+| Submit products for verification | Only with the Preferences consent switch on | Same |
+| Developer review screen | ❌ (route not registered, screen re-checks) | ✅ Profile → Review product submissions |
+| Save draft | ❌ | ✅ writes **only** to `product_submissions` |
+| Approve for scanner | ❌ | ✅ through the `approve-product-submission` Edge Function |
+| Write to food DB `products` | ❌ never | ❌ never directly – only the Edge Function can |
+
+Developers are rows in the **user** database table `admin_users`:
+
+```sql
+insert into public.admin_users (user_id) values ('USER-UUID-HERE');
+```
+
+Run `supabase/sql/user_database_developer_review.sql` (user project) and
+`supabase/sql/food_database_read_only.sql` (food project) once.
 
 ---
 
