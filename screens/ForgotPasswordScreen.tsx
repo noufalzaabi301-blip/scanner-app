@@ -1,80 +1,88 @@
-import { supabase } from "../lib/supabase";
+// ---------------------------------------------------------------------------
+// screens/ForgotPasswordScreen.tsx
+// Sends a Supabase password-reset email.
+// ---------------------------------------------------------------------------
+
 import { useState } from "react";
 import {
-  Alert,
   Platform,
-  SafeAreaView,
   StyleSheet,
+} from "react-native";
+
+import { useI18n } from "../lib/i18n";
+import { supabase } from "../lib/supabase";
+import { showMessage } from "../lib/ui/messages";
+import {
+  SafeAreaView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-} from "react-native";
+} from "../components/Themed";
 
 export default function ForgotPasswordScreen() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
+
   async function sendResetLink() {
-  const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
 
-  if (!cleanEmail) {
-    const message = "Enter your email address.";
-
-    if (Platform.OS === "web") {
-      window.alert(message);
-    } else {
-      Alert.alert("Missing email", message);
-    }
-
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    const { error } =
-      await supabase.auth.resetPasswordForEmail(cleanEmail);
-
-    if (error) {
-      if (Platform.OS === "web") {
-        window.alert(error.message);
-      } else {
-        Alert.alert("Reset failed", error.message);
-      }
-
+    if (!cleanEmail) {
+      showMessage(t("forgot.missingTitle"), t("forgot.missingBody"));
       return;
     }
 
-    const message =
-      "If an account exists for this email, a password-reset link has been sent. Check your inbox and spam folder.";
+    setLoading(true);
 
-    if (Platform.OS === "web") {
-      window.alert(message);
-    } else {
-      Alert.alert("Check your email", message);
-    }
-  } catch {
-    const message =
-      "Could not contact the password-reset service.";
+    try {
+      const { data: accountExists, error: checkError } = await supabase.rpc(
+        "is_registered_email",
+        { check_email: cleanEmail }
+      );
 
-    if (Platform.OS === "web") {
-      window.alert(message);
-    } else {
-      Alert.alert("Connection problem", message);
+      if (checkError) {
+        showMessage(t("forgot.checkFailed"), checkError.message);
+        return;
+      }
+
+      if (!accountExists) {
+        showMessage(t("forgot.notFoundTitle"), t("forgot.notFoundBody"));
+        return;
+      }
+
+      // Workaround: `window.location` only exists on the web build. On
+      // iOS/Android reading it would crash, so there we let Supabase use the
+      // project's default Site URL from the dashboard.
+      const redirectOptions =
+        Platform.OS === "web" && typeof window !== "undefined"
+          ? { redirectTo: `${window.location.origin}/reset-password` }
+          : undefined;
+
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        cleanEmail,
+        redirectOptions
+      );
+
+      if (resetError) {
+        showMessage(t("forgot.resetFailed"), resetError.message);
+        return;
+      }
+
+      showMessage(t("forgot.sentTitle"), t("forgot.sentBody"));
+    } catch {
+      showMessage(t("common.connectionProblem"), t("forgot.connectionBody"));
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
   }
-}
 
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.card}>
-        <Text style={styles.title}>Forgot your password?</Text>
+        <Text style={styles.title}>{t("forgot.title")}</Text>
 
-        <Text style={styles.description}>
-          Enter your account email and we will send you a reset link.
-        </Text>
+        <Text style={styles.description}>{t("forgot.description")}</Text>
 
         <TextInput
           style={styles.input}
@@ -82,21 +90,19 @@ export default function ForgotPasswordScreen() {
           onChangeText={setEmail}
           keyboardType="email-address"
           autoCapitalize="none"
+          autoCorrect={false}
           placeholder="name@example.com"
         />
 
         <TouchableOpacity
-  style={[
-    styles.button,
-    loading && { opacity: 0.6 },
-  ]}
-  onPress={sendResetLink}
-  disabled={loading}
->
-  <Text style={styles.buttonText}>
-    {loading ? "Sending..." : "Send reset link"}
-  </Text>
-</TouchableOpacity>
+          style={[styles.button, loading && styles.disabledButton]}
+          onPress={sendResetLink}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? t("forgot.sending") : t("forgot.send")}
+          </Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -105,7 +111,7 @@ export default function ForgotPasswordScreen() {
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    backgroundColor: "#F1F7F3",
+    backgroundColor: "#F7F9F7",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
@@ -143,6 +149,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 15,
     alignItems: "center",
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   buttonText: {
     color: "#FFFFFF",
