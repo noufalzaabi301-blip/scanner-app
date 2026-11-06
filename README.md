@@ -355,7 +355,7 @@ real users; Supabase's built-in email only sends a few emails per hour.)
 
 ## Delete account
 
-Profile → **Delete account** (asked twice) calls the `delete-account` Edge
+Profile → **Delete account** (asked twice, below **Log out**) calls the `delete-account` Edge
 Function. The customer and food databases are handled separately:
 
 | | Customer (user) database | Food database |
@@ -402,8 +402,23 @@ npx supabase secrets set GEMINI_API_KEY=your-gemini-key
 npx supabase functions deploy approve-product-submission
 npx supabase functions deploy reject-product-submission
 npx supabase functions deploy translate-food-text
-npx supabase functions deploy delete-account
+npx supabase functions deploy delete-account --no-verify-jwt
 ```
+
+On Windows PowerShell use `npx.cmd` instead of `npx`, for example:
+
+```powershell
+npx.cmd supabase@latest link --project-ref YOUR-USER-PROJECT-REF
+npx.cmd supabase@latest functions deploy delete-account --no-verify-jwt
+```
+
+`delete-account` checks the caller's login token itself, so the gateway
+check is turned off for it (`supabase/config.toml` →
+`[functions.delete-account] verify_jwt = false`). With the gateway check on,
+browsers can fail with *"Failed to send a request to the Edge Function"*.
+If the app shows *"Could not reach the delete-account function"*, the
+function is not deployed to the user project the app uses
+(`EXPO_PUBLIC_SUPABASE_URL`).
 
 Then, in the SQL editor of the **food** project, run
 `supabase/sql/food_database_read_only.sql` so the app can only read

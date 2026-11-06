@@ -72,7 +72,7 @@ async function removeUserFiles(
     const { error: removeError } = await db.storage.from(bucket).remove(paths);
 
     if (removeError) {
-      throw new Error(`Could not delete photos: ${removeError.message}`);
+      throw new Error(`Database deletion failed (photos in ${bucket}): ${removeError.message}`);
     }
   }
 }
@@ -87,7 +87,7 @@ async function deleteRows(
   const { error } = await db.from(table).delete().eq(column, userId);
 
   if (error && error.code !== "42P01") {
-    throw new Error(`Could not delete ${table}: ${error.message}`);
+    throw new Error(`Database deletion failed (${table}): ${error.message}`);
   }
 }
 
@@ -188,11 +188,17 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Provided automatically by Supabase for the project this function is
+    // deployed to (it must be the USER / customer project).
     const url = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!url || !serviceKey) {
-      return json(500, { ok: false, error: "Server is not configured." });
+      return json(500, {
+        ok: false,
+        error:
+          "Server setup error: the SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets are missing for delete-account.",
+      });
     }
 
     const db = createClient(url, serviceKey, {
@@ -204,12 +210,22 @@ Deno.serve(async (req) => {
       .replace(/^Bearer\s+/i, "")
       .trim();
 
-    const { data: auth, error: authError } = await db.auth.getUser(token);
-
-    if (!token || authError || !auth?.user) {
+    // verify_jwt is off for this function (supabase/config.toml), so the
+    // login token is verified here.
+    if (!token) {
       return json(401, {
         ok: false,
-        error: "Your login session expired. Please log in again.",
+        error: "No login session was sent. Please log in again and retry.",
+      });
+    }
+
+    const { data: auth, error: authError } = await db.auth.getUser(token);
+
+    if (authError || !auth?.user) {
+      return json(401, {
+        ok: false,
+        error:
+          "Your login session is invalid or expired. Please log in again and retry.",
       });
     }
 
@@ -242,6 +258,7 @@ Deno.serve(async (req) => {
     }
 
     // Customer database: the caller's own data only.
+    // (Approved products in the food database are never touched.)
     await removeUserFiles(db, "avoid-products", userId);
     await removeUserFiles(db, "product-submissions", userId);
 

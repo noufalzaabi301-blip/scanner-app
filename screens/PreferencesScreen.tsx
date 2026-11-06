@@ -1,8 +1,12 @@
 // ---------------------------------------------------------------------------
 // screens/PreferencesScreen.tsx
-// First-time setup and later editing of allergies, halal preference and the
-// optional product-submission consent. Everything is saved to the
-// user_preferences row, which is the source of truth for the whole app.
+// Allergy editor (first-time setup and "Edit allergy preferences"):
+// allergy yes/no, the standard allergy list, custom allergies, Save.
+//
+// The halal preference and the product-submission consent are NOT edited
+// here; they live only in Profile settings (ProfileSettingsScreen). This
+// screen never overwrites them: on edit they are left out of the save, and
+// a brand-new row starts with both turned off.
 // ---------------------------------------------------------------------------
 
 import { useCallback, useState } from "react";
@@ -25,7 +29,6 @@ import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
 import {
   ScrollView,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -36,11 +39,9 @@ const ALLERGY_VALUES = ALLERGY_OPTIONS.map((option) => option.value);
 
 
 type SavedPreferences = {
-  prefers_halal: boolean | null;
   has_allergies: boolean | null;
   allergies: unknown;
   other_allergy: string | null;
-  submit_products_for_review: boolean | null;
 };
 
 function splitCustomAllergies(
@@ -65,15 +66,6 @@ export default function PreferencesScreen({
   const isEditMode =
     route?.params?.mode === "edit";
 
-  // Consent passed from Register (via the Privacy Notice), if any.
-  const routeConsent: boolean | undefined =
-    typeof route?.params?.submitProductsForReview === "boolean"
-      ? route.params.submitProductsForReview
-      : undefined;
-
-  const [prefersHalal, setPrefersHalal] =
-    useState<boolean | null>(null);
-
   const [hasAllergies, setHasAllergies] =
     useState<boolean | null>(null);
 
@@ -88,9 +80,8 @@ export default function PreferencesScreen({
   // Validation message shown under the custom allergy field.
   const [customError, setCustomError] = useState("");
 
-  // Optional product-submission consent (default: off).
-  const [submitProducts, setSubmitProducts] =
-    useState(false);
+  // True when this user already has a user_preferences row.
+  const [hasSavedRow, setHasSavedRow] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [loadingSaved, setLoadingSaved] =
@@ -111,19 +102,9 @@ export default function PreferencesScreen({
           return;
         }
 
-        // Consent chosen at sign-up (kept with the account), used only
-        // until a value has been saved to user_preferences.
-        const signUpConsent =
-          user.user_metadata?.submit_products_for_review === true;
-
-        const fallbackConsent =
-          routeConsent ?? signUpConsent;
-
         const { data, error } = await supabase
           .from("user_preferences")
-          .select(
-            "prefers_halal, has_allergies, allergies, other_allergy, submit_products_for_review"
-          )
+          .select("has_allergies, allergies, other_allergy")
           .eq("user_id", user.id)
           .maybeSingle();
 
@@ -131,25 +112,14 @@ export default function PreferencesScreen({
           throw error;
         }
 
+        setHasSavedRow(!!data);
+
         if (!data) {
-          setSubmitProducts(fallbackConsent);
           return;
         }
 
         const saved =
           data as SavedPreferences;
-
-        // Edit mode: the database value is the source of truth.
-        // First setup: the choice just made on the Privacy Notice wins.
-        if (!isEditMode && routeConsent !== undefined) {
-          setSubmitProducts(routeConsent);
-        } else if (
-          typeof saved.submit_products_for_review === "boolean"
-        ) {
-          setSubmitProducts(saved.submit_products_for_review);
-        } else {
-          setSubmitProducts(fallbackConsent);
-        }
 
         const standardAllergies =
           Array.isArray(saved.allergies)
@@ -168,12 +138,6 @@ export default function PreferencesScreen({
                 saved.other_allergy
               )
             : [];
-
-        setPrefersHalal(
-          typeof saved.prefers_halal === "boolean"
-            ? saved.prefers_halal
-            : null
-        );
 
         setHasAllergies(
           typeof saved.has_allergies === "boolean"
@@ -207,7 +171,7 @@ export default function PreferencesScreen({
         setLoadingSaved(false);
       }
     },
-    [isEditMode, routeConsent]
+    []
   );
 
   useFocusEffect(
@@ -215,10 +179,6 @@ export default function PreferencesScreen({
       void loadSavedPreferences();
     }, [loadSavedPreferences])
   );
-
-  function selectHalal(value: boolean) {
-    setPrefersHalal(value);
-  }
 
   function selectAllergyAnswer(
     value: boolean
@@ -294,14 +254,6 @@ export default function PreferencesScreen({
   }
 
   async function savePreferences() {
-    if (prefersHalal === null) {
-      showMessage(
-        t("prefs.chooseHalalTitle"),
-        t("prefs.chooseHalalBody")
-      );
-      return;
-    }
-
     if (hasAllergies === null) {
       showMessage(
         t("prefs.chooseAllergyTitle"),
@@ -344,12 +296,21 @@ export default function PreferencesScreen({
         return;
       }
 
+      // Only allergy columns are written for an existing row, so the halal
+      // preference and submission consent set in Profile settings are kept.
+      // A first-time row starts with both off (changeable in Profile
+      // settings at any time).
       const { error } = await supabase
         .from("user_preferences")
         .upsert(
           {
             user_id: user.id,
-            prefers_halal: prefersHalal,
+            ...(hasSavedRow
+              ? {}
+              : {
+                  prefers_halal: false,
+                  submit_products_for_review: false,
+                }),
             has_allergies: hasAllergies,
             allergies: hasAllergies
               ? selectedAllergies
@@ -359,9 +320,6 @@ export default function PreferencesScreen({
               customAllergies.length > 0
                 ? customAllergies.join(", ")
                 : null,
-            // Always saved as true or false.
-            submit_products_for_review:
-              submitProducts === true,
             updated_at:
               new Date().toISOString(),
           },
@@ -414,48 +372,6 @@ export default function PreferencesScreen({
         {loadError && (
           <Text style={styles.loadError}>{t("prefs.loadFailed")}</Text>
         )}
-
-        <Text style={styles.question}>{t("prefs.halalQuestion")}</Text>
-
-        <View style={styles.answerRow}>
-          <TouchableOpacity
-            style={[
-              styles.answerButton,
-              prefersHalal === true &&
-                styles.selectedAnswer,
-            ]}
-            onPress={() => selectHalal(true)}
-          >
-            <Text
-              style={[
-                styles.answerText,
-                prefersHalal === true &&
-                  styles.selectedAnswerText,
-              ]}
-            >
-              {t("common.yes")}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.answerButton,
-              prefersHalal === false &&
-                styles.selectedAnswer,
-            ]}
-            onPress={() => selectHalal(false)}
-          >
-            <Text
-              style={[
-                styles.answerText,
-                prefersHalal === false &&
-                  styles.selectedAnswerText,
-              ]}
-            >
-              {t("common.no")}
-            </Text>
-          </TouchableOpacity>
-        </View>
 
         <Text style={styles.question}>{t("prefs.allergyQuestion")}</Text>
 
@@ -648,29 +564,6 @@ export default function PreferencesScreen({
             )}
           </View>
         )}
-
-        {/* Optional product-submission consent (saved with the form). */}
-        <View style={styles.submissionCard}>
-          <View style={styles.submissionRow}>
-            <Text style={styles.submissionTitle}>{t("prefs.submitTitle")}</Text>
-
-            <Switch
-              value={submitProducts}
-              onValueChange={setSubmitProducts}
-              disabled={loadingSaved}
-              trackColor={{
-                false: "#C9D4CC",
-                true: "#8FC9A5",
-              }}
-              thumbColor={
-                submitProducts ? "#176B43" : "#F4F6F5"
-              }
-              accessibilityLabel={t("prefs.submitA11y")}
-            />
-          </View>
-
-          <Text style={styles.submissionText}>{t("prefs.submitBody")}</Text>
-        </View>
 
         <TouchableOpacity
           style={[
@@ -902,36 +795,9 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  submissionCard: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#DDE7E0",
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 22,
-  },
 
-  submissionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
 
-  submissionTitle: {
-    flex: 1,
-    color: "#17452F",
-    fontSize: 14,
-    fontWeight: "800",
-    lineHeight: 20,
-  },
 
-  submissionText: {
-    color: "#63776B",
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 8,
-  },
 
   saveButton: {
     minHeight: 50,

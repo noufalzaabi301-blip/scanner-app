@@ -4,8 +4,9 @@
 //
 // Sections:
 //   1. Account card   – real name and email from the Supabase auth user
-//   2. Preferences    – allergies, halal and product-submission consent
-//                       (read from / saved to user_preferences)
+//   2. Preferences    – allergy editor link, and a summary row for the
+//                       halal / submission switches (which are edited only
+//                       in Profile settings)
 //   3. Language       – English / Arabic, saved on the device
 //      Appearance     – light / dark / system theme and text size
 //   4. Admin          – only for approved admins
@@ -50,7 +51,6 @@ import {
   Ionicons,
   SafeAreaView,
   ScrollView,
-  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -65,7 +65,6 @@ type Account = {
 
 type Banner = { kind: "success" | "error"; text: string } | null;
 
-type ToggleField = "prefers_halal" | "submit_products_for_review";
 
 const THEME_OPTIONS: {
   mode: ThemeMode;
@@ -99,7 +98,6 @@ export default function ProfileScreen({ navigation }: any) {
     useState<UserPreferences>(EMPTY_PREFERENCES);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [savingField, setSavingField] = useState<ToggleField | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [banner, setBanner] = useState<Banner>(null);
@@ -149,53 +147,6 @@ export default function ProfileScreen({ navigation }: any) {
       void loadProfile();
     }, [loadProfile])
   );
-
-  // ----- Inline preference switches -----------------------------------------
-
-  async function toggleSetting(field: ToggleField, value: boolean) {
-    if (!account || savingField) {
-      return;
-    }
-
-    // Without a saved row there is nothing to update yet: first-time setup
-    // must go through Preferences, which also asks the required questions.
-    if (!preferences.exists) {
-      navigation.navigate(ROUTES.Preferences);
-      return;
-    }
-
-    const previous = preferences;
-    const optimistic: UserPreferences =
-      field === "prefers_halal"
-        ? { ...preferences, prefersHalal: value }
-        : { ...preferences, submitProducts: value };
-
-    setPreferences(optimistic);
-    setSavingField(field);
-    setBanner(null);
-
-    try {
-      // Row Level Security limits this update to the user's own row.
-      // .select() confirms that a row was really changed.
-      const { data, error } = await supabase
-        .from("user_preferences")
-        .update({ [field]: value, updated_at: new Date().toISOString() })
-        .eq("user_id", account.id)
-        .select("user_id");
-
-      if (error || !data || data.length === 0) {
-        throw error ?? new Error("No row updated");
-      }
-
-      setBanner({ kind: "success", text: t("profile.savedSetting") });
-    } catch (error) {
-      console.warn("Setting could not be saved:", error);
-      setPreferences(previous);
-      setBanner({ kind: "error", text: t("profile.saveSettingFailed") });
-    } finally {
-      setSavingField(null);
-    }
-  }
 
   // ----- Language ------------------------------------------------------------
 
@@ -422,52 +373,17 @@ export default function ProfileScreen({ navigation }: any) {
 
               <SettingsDivider />
 
+              {/* Halal and submission switches live only in Profile
+                  settings; this row shows their current values. */}
               <SettingsRow
                 icon="restaurant-outline"
-                title={t("profile.halal")}
-                right={
-                  savingField === "prefers_halal" ? (
-                    <ActivityIndicator color={COLORS.primary} />
-                  ) : (
-                    <Switch
-                      {...switchColors}
-                      thumbColor={preferences.prefersHalal ? "#176B43" : "#F4F6F5"}
-                      value={preferences.prefersHalal}
-                      onValueChange={(value) =>
-                        toggleSetting("prefers_halal", value)
-                      }
-                      disabled={loading || savingField !== null}
-                      accessibilityLabel={t("profile.halal")}
-                    />
-                  )
-                }
-              />
-
-              <SettingsDivider />
-
-              {/* Product submission consent: explicit opt-in, saved to
-                  user_preferences, which HomeScreen reads before any
-                  submission is sent. */}
-              <SettingsRow
-                icon="cloud-upload-outline"
-                title={t("profile.submissions")}
-                subtitle={t("profile.submissionsHint")}
-                right={
-                  savingField === "submit_products_for_review" ? (
-                    <ActivityIndicator color={COLORS.primary} />
-                  ) : (
-                    <Switch
-                      {...switchColors}
-                      thumbColor={preferences.submitProducts ? "#176B43" : "#F4F6F5"}
-                      value={preferences.submitProducts}
-                      onValueChange={(value) =>
-                        toggleSetting("submit_products_for_review", value)
-                      }
-                      disabled={loading || savingField !== null}
-                      accessibilityLabel={t("prefs.submitA11y")}
-                    />
-                  )
-                }
+                title={t("profile.halalAndVerification")}
+                subtitle={`${t("profile.halal")}: ${
+                  preferences.prefersHalal ? t("pdf.on") : t("pdf.off")
+                } · ${t("profile.verificationShort")}: ${
+                  preferences.submitProducts ? t("pdf.on") : t("pdf.off")
+                }`}
+                onPress={() => navigation.navigate(ROUTES.ProfileSettings)}
               />
             </SettingsGroup>
 
@@ -635,9 +551,13 @@ export default function ProfileScreen({ navigation }: any) {
         {/* 6. Log out */}
         {account && (
           <TouchableOpacity
-            style={[styles.logoutButton, loggingOut && styles.disabled]}
+            style={[
+              styles.accountAction,
+              styles.logoutSpacing,
+              (loggingOut || deleting) && styles.disabled,
+            ]}
             onPress={logOut}
-            disabled={loggingOut}
+            disabled={loggingOut || deleting}
             accessibilityRole="button"
           >
             {loggingOut ? (
@@ -653,7 +573,11 @@ export default function ProfileScreen({ navigation }: any) {
 
         {account && (
           <TouchableOpacity
-            style={[styles.deleteButton, deleting && styles.disabled]}
+            style={[
+              styles.accountAction,
+              styles.deleteSpacing,
+              (deleting || loggingOut) && styles.disabled,
+            ]}
             onPress={deleteAccount}
             disabled={deleting || loggingOut}
             accessibilityRole="button"
@@ -662,8 +586,8 @@ export default function ProfileScreen({ navigation }: any) {
               <ActivityIndicator color={COLORS.danger} />
             ) : (
               <>
-                <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
-                <Text style={styles.deleteText}>{t("profile.deleteAccount")}</Text>
+                <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
+                <Text style={styles.logoutText}>{t("profile.deleteAccount")}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -839,7 +763,11 @@ const styles = StyleSheet.create({
     borderColor: "#C9D4CC",
   },
 
-  logoutButton: {
+  // Log out and Delete account share one style (same width, height,
+  // radius, red border, red icon and red text); only the spacing above
+  // differs.
+  accountAction: {
+    alignSelf: "stretch",
     minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
@@ -848,24 +776,16 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#F3C5C0",
+    borderColor: COLORS.danger,
+    paddingHorizontal: 16,
+  },
+
+  logoutSpacing: {
     marginTop: 24,
   },
 
-  deleteButton: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+  deleteSpacing: {
     marginTop: 12,
-  },
-
-  deleteText: {
-    color: COLORS.danger,
-    fontSize: 14,
-    fontWeight: "600",
-    textDecorationLine: "underline",
   },
 
   logoutText: {
