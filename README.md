@@ -148,6 +148,8 @@ lib/
   adminAccess.ts             Admin check + review function calls
   userPreferences.ts         Shared user_preferences access
   allergyValidation.ts       Rules for custom allergies typed in Preferences
+                             (only recognised foods from foodGlossary.ts)
+  rtl.ts                     Layout direction props (web vs phones)
   foodTranslation.ts         English ↔ Arabic label translation + cache
   barcode.ts, text.ts        Small helpers
   constants.ts               Colours, routes, storage keys, allergy options

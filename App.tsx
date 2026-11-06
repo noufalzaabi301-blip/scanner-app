@@ -38,6 +38,7 @@ import { COLORS, hasAcceptedCurrentPrivacy } from "./lib/constants";
 import { supabase } from "./lib/supabase";
 import { hasSavedPreferences } from "./lib/userPreferences";
 import { I18nProvider, useI18n } from "./lib/i18n";
+import { directionProps } from "./lib/rtl";
 import { ThemeProvider, remapColor, useAppTheme } from "./lib/theme";
 
 export type RootStackParamList = {
@@ -145,6 +146,7 @@ const DARK_NAV_THEME: Theme = {
 
 function AppNavigator() {
   const { t, isRTL } = useI18n();
+  const rootDirection = directionProps(isRTL ? "rtl" : "ltr");
   const { isDark } = useAppTheme();
   const [startRoute, setStartRoute] = useState<StartRoute | null>(null);
 
@@ -185,9 +187,13 @@ function AppNavigator() {
   }
 
   return (
-    // `direction` flips the whole layout for Arabic without an app reload
-    // (see lib/i18n/index.tsx for why this is used instead of forceRTL).
-    <View style={[styles.root, { direction: isRTL ? "rtl" : "ltr" }]}>
+    // Flips the whole layout for Arabic without an app reload (see
+    // lib/i18n/index.tsx for why this is used instead of forceRTL, and
+    // lib/rtl.ts for the web / phone difference).
+    <View
+      {...(rootDirection.dir ? ({ dir: rootDirection.dir } as object) : {})}
+      style={[styles.root, rootDirection.style]}
+    >
       <StatusBar style={isDark ? "light" : "dark"} />
 
       <NavigationContainer theme={isDark ? DARK_NAV_THEME : LIGHT_NAV_THEME}>

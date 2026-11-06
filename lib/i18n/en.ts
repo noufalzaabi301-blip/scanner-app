@@ -185,6 +185,7 @@ const en = {
   "prefs.allergyNotFood": "Please enter a real food or ingredient name, for example Coconut or Mustard.",
   "prefs.alreadySelectedBody": "This allergy is already selected in the list above.",
   "prefs.allergyHint": "A food or ingredient name, e.g. Coconut, Mustard or Kiwi.",
+  "prefs.allergyUnknown": "Please enter a recognized food or allergen.",
   "profile.heading": "Profile & Settings",
   "profile.guestName": "Guest",
   "profile.guestBody": "Sign in to save preferences and your Avoid List.",

@@ -186,6 +186,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "prefs.allergyNotFood": "يرجى إدخال اسم طعام أو مكوّن حقيقي، مثل جوز الهند أو الخردل.",
   "prefs.alreadySelectedBody": "هذه الحساسية محددة بالفعل في القائمة أعلاه.",
   "prefs.allergyHint": "اسم طعام أو مكوّن، مثل جوز الهند أو الخردل أو الكيوي.",
+  "prefs.allergyUnknown": "يرجى إدخال اسم طعام أو مسبب حساسية معروف.",
   "profile.heading": "الملف الشخصي والإعدادات",
   "profile.guestName": "ضيف",
   "profile.guestBody": "سجّل الدخول لحفظ تفضيلاتك وقائمة التجنب.",

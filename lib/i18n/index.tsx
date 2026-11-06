@@ -11,7 +11,8 @@
 // React Native's I18nManager.forceRTL() only takes effect after a full
 // native restart, and Expo's `supportsRTL`/`forcesRTL` settings require a
 // new native build. Instead, App.tsx wraps the whole navigator in a View
-// with `direction: "rtl"` when Arabic is selected. Yoga (iOS/Android) and
+// set to right-to-left when Arabic is selected (lib/rtl.ts: Yoga
+// `direction` on phones, writingDirection + dir="rtl" on the web). Yoga and
 // react-native-web apply that direction to every child, so rows, text
 // alignment and start/end spacing flip immediately, with no reload, in
 // Expo Go, development builds and on the web. We pin the native I18nManager

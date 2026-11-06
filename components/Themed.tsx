@@ -25,6 +25,7 @@ import {
 import { SafeAreaView as RNContextSafeAreaView } from "react-native-safe-area-context";
 
 import { useI18n } from "../lib/i18n";
+import { directionProps } from "../lib/rtl";
 import { remapColor, useAppTheme } from "../lib/theme";
 
 const DEFAULT_FONT_SIZE = 14;
@@ -220,6 +221,7 @@ export function Switch({
   thumbColor,
 }: SwitchProps) {
   const { isDark } = useAppTheme();
+  const ltr = directionProps("ltr");
 
   const track = value
     ? trackColor?.true ?? "#8FC9A5"
@@ -227,33 +229,39 @@ export function Switch({
   const thumb = thumbColor ?? (value ? "#176B43" : "#FFFFFF");
 
   return (
-    <RNTouchableOpacity
-      onPress={() => onValueChange?.(!value)}
-      disabled={disabled}
-      activeOpacity={0.8}
-      accessibilityRole="switch"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ checked: value, disabled: !!disabled }}
-      style={[
-        switchStyles.track,
-        {
-          backgroundColor: isDark
-            ? (remapColor(track, "border") as string)
-            : track,
-        },
-        disabled && switchStyles.disabled,
-      ]}
+    // Always left-to-right, also inside Arabic screens (see lib/rtl.ts).
+    <RNView
+      {...(ltr.dir ? ({ dir: ltr.dir } as object) : {})}
+      style={[switchStyles.wrapper, ltr.style]}
     >
-      <RNView
+      <RNTouchableOpacity
+        onPress={() => onValueChange?.(!value)}
+        disabled={disabled}
+        activeOpacity={0.8}
+        accessibilityRole="switch"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={{ checked: value, disabled: !!disabled }}
         style={[
-          switchStyles.thumb,
+          switchStyles.track,
           {
-            backgroundColor: thumb,
-            left: value ? TRACK_WIDTH - THUMB_SIZE - THUMB_GAP : THUMB_GAP,
+            backgroundColor: isDark
+              ? (remapColor(track, "border") as string)
+              : track,
           },
+          disabled && switchStyles.disabled,
         ]}
-      />
-    </RNTouchableOpacity>
+      >
+        <RNView
+          style={[
+            switchStyles.thumb,
+            {
+              backgroundColor: thumb,
+              left: value ? TRACK_WIDTH - THUMB_SIZE - THUMB_GAP : THUMB_GAP,
+            },
+          ]}
+        />
+      </RNTouchableOpacity>
+    </RNView>
   );
 }
 
@@ -263,8 +271,9 @@ const switchStyles = StyleSheet.create({
     height: TRACK_HEIGHT,
     borderRadius: TRACK_HEIGHT / 2,
     position: "relative",
-    // Keep the switch itself left-to-right inside Arabic layouts.
-    direction: "ltr",
+  },
+  wrapper: {
+    alignSelf: "flex-start",
   },
   thumb: {
     position: "absolute",

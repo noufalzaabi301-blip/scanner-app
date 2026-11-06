@@ -288,6 +288,7 @@ export const FOOD_GLOSSARY: Record<string, string> = {
   lemon: "ليمون",
   "lemon juice": "عصير الليمون",
   kiwi: "كيوي",
+  "kiwi fruit": "كيوي",
   mango: "مانجو",
   raisins: "زبيب",
   dates: "تمر",
@@ -312,6 +313,9 @@ export const FOOD_GLOSSARY: Record<string, string> = {
   tea: "شاي",
   caffeine: "كافيين",
   "dried glucose syrup": "شراب الجلوكوز المجفف",
+  "soya beans": "فول الصويا",
+  "soy beans": "فول الصويا",
+  "hen's egg": "بيض",
   "from milk": "من الحليب",
   traces: "آثار",
 };
@@ -320,12 +324,16 @@ export const FOOD_GLOSSARY: Record<string, string> = {
 // normalizeArabic() before lookup.
 export function normalizeArabic(value: string): string {
   return value
-    .replace(/[ً-ْـ]/g, "") // harakat and tatweel
-    .replace(/[إأآ]/g, "ا")
+    .normalize("NFKC")
+    .replace(/[ً-ْٰـ]/g, "") // harakat, dagger alif, tatweel
+    .replace(/[إأآٱ]/g, "ا")
     .replace(/ى/g, "ي")
     .replace(/ة/g, "ه")
-    .replace(/^ال/, "")
-    .trim();
+    .trim()
+    .split(/\s+/)
+    // "ال" (the) is removed from every word: "الفول السوداني" = "فول سوداني".
+    .map((word) => (word.length > 3 && word.startsWith("ال") ? word.slice(2) : word))
+    .join(" ");
 }
 
 const ARABIC_TO_ENGLISH: Map<string, string> = (() => {
@@ -367,6 +375,23 @@ const ARABIC_TO_ENGLISH: Map<string, string> = (() => {
     "عسل": "honey",
     "ذره": "corn",
     "فراوله": "strawberries",
+    "محار": "shellfish",
+    "لوبين": "lupin",
+    "ترمس": "lupin",
+    "عباد الشمس": "sunflower",
+    "دوار الشمس": "sunflower",
+    "بذور عباد الشمس": "sunflower seeds",
+    "جوز": "walnuts",
+    "صنوبر": "pine nuts",
+    "كيوي": "kiwi",
+    "ثوم": "garlic",
+    "كرفس": "celery",
+    "خردل": "mustard",
+    "جوز الهند": "coconut",
+    "بندق": "hazelnuts",
+    "لوز": "almonds",
+    "فول الصويا": "soybeans",
+    "ليسيثين الصويا": "soy lecithin",
   };
 
   for (const [arabic, english] of Object.entries(extra)) {
@@ -450,4 +475,35 @@ export function rememberArabicTerm(english: string, arabic: string): void {
 
 export function learnedArabicTerm(english: string): string | null {
   return learnedEnglishToArabic.get(english.trim().toLowerCase()) ?? null;
+}
+
+// True when the text is a food or allergen this app knows, in English or
+// Arabic (used to reject random words typed as custom allergies).
+// English allows simple singular / plural forms ("Peanut" / "Peanuts",
+// "Strawberry" / "Strawberries").
+export function isRecognizedFoodTerm(value: string): boolean {
+  const text = value.normalize("NFKC").trim().replace(/\s+/g, " ");
+
+  if (!text) {
+    return false;
+  }
+
+  if (containsArabic(text)) {
+    // Mixed Arabic + Latin text is never a single food name.
+    return !/[a-z]/i.test(text) && arabicToEnglishTerm(text) !== null;
+  }
+
+  // Hyphens count as spaces: "Kiwi-fruit" = "kiwi fruit".
+  const lower = text.toLowerCase().replace(/’/g, "'").replace(/-/g, " ");
+  const candidates = new Set([
+    lower,
+    lower.replace(/ies$/, "y"),
+    lower.replace(/es$/, ""),
+    lower.replace(/s$/, ""),
+    `${lower}s`,
+    `${lower}es`,
+    lower.replace(/y$/, "ies"),
+  ]);
+
+  return [...candidates].some((candidate) => candidate in FOOD_GLOSSARY);
 }
