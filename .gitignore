@@ -41,3 +41,16 @@ yarn-error.*
 /android
 
 .env
+# environment files (keep only the example)
+.env
+.env.*
+!.env.example
+
+# build output
+build/
+
+# Supabase CLI local state
+supabase/.temp/
+
+# local AI assistant settings
+.claude/

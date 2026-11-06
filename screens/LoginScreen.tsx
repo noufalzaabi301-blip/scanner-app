@@ -1,274 +1,285 @@
-//Test on login screen
-import { supabase } from "../lib/supabase";
-import React, { useState } from "react";
+// ---------------------------------------------------------------------------
+// screens/LoginScreen.tsx
+// Email/password sign-in. After login, users who have never saved
+// preferences are sent to Preferences first; everyone else goes to Home.
+// ---------------------------------------------------------------------------
+
+import { useState } from "react";
 import {
-  Alert,
-  Platform,
-  ScrollView,
   StyleSheet,
+} from "react-native";
+
+import LanguageSwitch from "../components/LanguageSwitch";
+import { hasAcceptedCurrentPrivacy } from "../lib/constants";
+import { useI18n } from "../lib/i18n";
+import { supabase } from "../lib/supabase";
+import { showMessage } from "../lib/ui/messages";
+import { hasSavedPreferences } from "../lib/userPreferences";
+import {
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-} from "react-native";
+} from "../components/Themed";
+
 export default function LoginScreen({ navigation }: any) {
- const [email, setEmail] = useState("");
- const [password, setPassword] = useState("");
-const [loading, setLoading] = useState(false);
-  function showMessage(title: string, message: string) {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
-    } else {
-      Alert.alert(title, message);
-    }
-  }
-async function handleLogin() {
-  const cleanEmail = email.trim().toLowerCase();
+  const { t } = useI18n();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  if (!cleanEmail || !password) {
-    showMessage(
-      "Missing information",
-      "Please enter your email and password."
-    );
-    return;
-  }
+  async function handleLogin() {
+    const cleanEmail = email.trim().toLowerCase();
 
-  setLoading(true);
+    if (!cleanEmail || !password) {
+      showMessage(t("login.missingTitle"), t("login.missingBody"));
+      return;
+    }
 
-  try {
-    const { error } =
-      await supabase.auth.signInWithPassword({
+    setLoading(true);
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password,
       });
 
-    if (error) {
-      showMessage(
-        "Login failed",
-        "The email or password is incorrect."
-      );
-      return;
+      // Security: one generic message, so the screen never reveals whether
+      // an email address is registered.
+      if (error) {
+        showMessage(t("login.failedTitle"), t("login.failedBody"));
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        showMessage(t("login.failedTitle"), t("login.accountLoadFailed"));
+        return;
+      }
+
+      // Privacy gate: nobody reaches Preferences or Home without having
+      // accepted the current Privacy Notice (for example an account created
+      // before this check existed, or after the notice version changes).
+      if (!hasAcceptedCurrentPrivacy(user.user_metadata)) {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "PrivacyNotice", params: { fromLogin: true } }],
+        });
+        return;
+      }
+
+      let hasPreferences: boolean;
+
+      try {
+        hasPreferences = await hasSavedPreferences(user.id);
+      } catch (preferencesError: any) {
+        showMessage(t("login.prefsLoadFailed"), preferencesError?.message);
+        return;
+      }
+
+      navigation.replace(hasPreferences ? "Home" : "Preferences");
+    } catch {
+      showMessage(t("common.connectionProblem"), t("login.connectionBody"));
+    } finally {
+      setLoading(false);
     }
-
-  const {
-  data: { user },
-} = await supabase.auth.getUser();
-
-if (!user) {
-  showMessage(
-    "Login failed",
-    "Could not load your account."
-  );
-  return;
-}
-const { data: consent, error: consentError } =
-  await supabase
-    .from("user_consents")
-    .select("privacy_version")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-if (consentError) {
-  showMessage(
-    "Could not load privacy consent",
-    consentError.message
-  );
-  return;
-}
-
-if (!consent) {
-  navigation.replace("PrivacyNotice");
-  return;
-}
-const { data: preferences, error: preferencesError } =
-  await supabase
-    .from("user_preferences")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-if (preferencesError) {
-  showMessage(
-    "Could not load preferences",
-    preferencesError.message
-  );
-  return;
-}
-
-if (preferences) {
-  navigation.replace("Home");
-} else {
-  navigation.replace("Preferences");
-}
-  } catch {
-    showMessage(
-      "Connection problem",
-      "Could not connect to the login service."
-    );
-  } finally {
-    setLoading(false);
   }
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.page}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.content}>
+        <LanguageSwitch />
+
+        <Text style={styles.title}>{t("login.title")}</Text>
+
+        <Text style={styles.subtitle}>{t("login.subtitle")}</Text>
+
+        <Text style={styles.label}>{t("common.email")}</Text>
+
+        <TextInput
+          style={styles.input}
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@example.com"
+          placeholderTextColor="#AAB8AE"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+
+        <Text style={styles.label}>{t("common.password")}</Text>
+
+        <View style={styles.passwordContainer}>
+          <TextInput
+            style={styles.passwordInput}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="••••••••"
+            placeholderTextColor="#AAB8AE"
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TouchableOpacity
+            style={styles.showPasswordButton}
+            onPress={() => setShowPassword(!showPassword)}
+          >
+            <Text style={styles.showPasswordText}>
+              {showPassword ? t("login.hide") : t("login.show")}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity onPress={() => navigation.navigate("ForgotPassword")}>
+          <Text style={styles.forgot}>{t("login.forgot")}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.button, loading && styles.disabledButton]}
+          onPress={handleLogin}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? t("login.signingIn") : t("common.signIn")}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => navigation.navigate("Register")}>
+          <Text style={styles.createAccount}>
+            {t("login.noAccount")}
+            <Text style={styles.createAccountLink}>
+              {t("common.createAccount")}
+            </Text>
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
 }
-  return (
-    <ScrollView
-  contentContainerStyle={styles.page}
-  keyboardShouldPersistTaps="handled"
->
-      <View style={styles.card}>
-        <View style={styles.logo}>
-          <Text style={styles.logoText}>✓</Text>
-        </View>
-        <Text style={styles.title}>LabelLens</Text>
-        <Text style={styles.subtitle}>
-    Scan products and check their halal & allergy status 
-        </Text>
-        <Text style={styles.label}>Email address</Text>
-        <TextInput
-          style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="name@example.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Enter your password"
-          secureTextEntry
-        />
-        <TouchableOpacity
-  onPress={() => navigation.navigate("ForgotPassword")}
->
-  <Text style={styles.forgot}>Forgot password?</Text>
-</TouchableOpacity>
-        <TouchableOpacity
-  style={[
-    styles.loginButton,
-    loading && { opacity: 0.6 },
-  ]}
-  onPress={handleLogin}
-  disabled={loading}
->
-  <Text style={styles.loginText}>
-    {loading ? "Logging in..." : "Log in"}
-  </Text>
-</TouchableOpacity>
-        <TouchableOpacity
-  onPress={() => navigation.navigate("Register")}
->
-  <Text style={styles.register}>
-    Don&apos;t have an account?{" "}
-    <Text style={styles.greenText}>Create account</Text>
-  </Text>
-</TouchableOpacity>
-        <TouchableOpacity
-  style={styles.guestButton}
-  onPress={() => navigation.navigate("Home")}
->
-  <Text style={styles.greenText}>Continue as guest</Text>
-</TouchableOpacity>
-      </View>
-    </ScrollView>
-  );
-}
+
+// Styles used by the Login screen.
 const styles = StyleSheet.create({
- page: {
-  flexGrow: 1,
-  backgroundColor: "#F1F7F3",
-  alignItems: "center",
-  justifyContent: "center",
-  paddingHorizontal: 20,
-  paddingVertical: 40,
-},
-  card: {
-    width: "100%",
-    maxWidth: 430,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 30,
-    shadowColor: "#163A29",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 5,
-  },
-  logo: {
-    alignSelf: "center",
-    width: 65,
-    height: 65,
-    borderRadius: 33,
-    backgroundColor: "#176B43",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoText: {
-    color: "#FFFFFF",
-    fontSize: 32,
-    fontWeight: "bold",
-  },
-  title: {
-    color: "#17452F",
-    fontSize: 32,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginTop: 14,
-  },
-  subtitle: {
-    color: "#68766F",
-    fontSize: 15,
-    textAlign: "center",
-    marginTop: 7,
-    marginBottom: 28,
-  },
-  label: {
-    color: "#263E32",
-    fontWeight: "600",
-    marginBottom: 7,
-  },
-  input: {
-    borderColor: "#C9D8CF",
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    marginBottom: 18,
-  },
-  forgot: {
-    color: "#176B43",
-    textAlign: "right",
-    fontWeight: "600",
-    marginTop: -7,
-    marginBottom: 20,
-  },
-  loginButton: {
-    backgroundColor: "#176B43",
-    borderRadius: 12,
-    padding: 15,
-    alignItems: "center",
-  },
-  loginText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  register: {
-    color: "#68766F",
-    textAlign: "center",
-    marginTop: 22,
-  },
-  guestButton: {
-    borderColor: "#176B43",
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  greenText: {
-    color: "#176B43",
-    fontWeight: "bold",
-  },
+  page: {
+    flexGrow: 1,
+    backgroundColor: "#F7F9F7",
+    alignItems: "center",
+    paddingHorizontal: 28,
+    paddingVertical: 30,
+  },
+
+  content: {
+    width: "100%",
+    maxWidth: 320,
+  },
+
+  title: {
+    color: "#17452F",
+    fontSize: 24,
+    fontWeight: "700",
+  },
+
+  subtitle: {
+    color: "#63776B",
+    fontSize: 13,
+    marginTop: 5,
+    marginBottom: 21,
+  },
+
+  label: {
+    color: "#17452F",
+    fontSize: 13,
+    fontWeight: "500",
+    marginBottom: 7,
+  },
+
+  input: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: "#DCE5DE",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: "#17452F",
+    marginBottom: 15,
+  },
+
+  passwordContainer: {
+    position: "relative",
+    marginBottom: 15,
+  },
+
+  passwordInput: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: "#DCE5DE",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingRight: 65,
+    fontSize: 14,
+    color: "#17452F",
+  },
+
+  showPasswordButton: {
+    position: "absolute",
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+  },
+
+  showPasswordText: {
+    color: "#176B43",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  forgot: {
+    color: "#176B43",
+    fontSize: 13,
+    fontWeight: "500",
+    textAlign: "right",
+    marginTop: -3,
+    marginBottom: 21,
+  },
+
+  button: {
+    minHeight: 48,
+    backgroundColor: "#176B43",
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  disabledButton: {
+    opacity: 0.6,
+  },
+
+  buttonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  createAccount: {
+    color: "#63776B",
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: 20,
+  },
+
+  createAccountLink: {
+    color: "#176B43",
+    fontWeight: "700",
+  },
 });

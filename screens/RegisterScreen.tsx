@@ -1,201 +1,429 @@
-import { supabase } from "../lib/supabase";
-import { useState } from "react";
+// ---------------------------------------------------------------------------
+// screens/RegisterScreen.tsx
+// Registration flow:
+//   1. The user fills in the form and presses Continue (validated here).
+//   2. The Privacy Notice opens (PrivacyNotice, fromSignup: true).
+//   3. Only after the user ticks and accepts it does the notice return here
+//      with privacyAccepted: true, and the account is created.
+//   4. Session returned  -> Preferences.
+//      Email confirmation -> Login (the notice was already accepted in 2).
+// The password stays in this screen's state; it is never put in route
+// params. The product-submission choice is NOT asked here: it lives only in
+// Preferences and is off until the user turns it on.
+// ---------------------------------------------------------------------------
+
+import { useEffect, useRef, useState } from "react";
+
 import {
-  Alert,
-  Platform,
-  SafeAreaView,
   StyleSheet,
+} from "react-native";
+
+import LanguageSwitch from "../components/LanguageSwitch";
+import { PRIVACY_VERSION } from "../lib/constants";
+import { useI18n } from "../lib/i18n";
+import { supabase } from "../lib/supabase";
+import { showMessage } from "../lib/ui/messages";
+import {
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-} from "react-native";
-//comment test
-export default function RegisterScreen({ navigation }: any) {
+} from "../components/Themed";
+
+export default function RegisterScreen({
+  navigation,
+  route,
+}: any) {
+  const { t } = useI18n();
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] =
+    useState("");
+
+  const [showPassword, setShowPassword] =
+    useState(false);
+
+  const [showConfirmPassword, setShowConfirmPassword] =
+    useState(false);
+
   const [loading, setLoading] = useState(false);
 
-  function showMessage(title: string, message: string) {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
-    } else {
-      Alert.alert(title, message);
+  // Prevents a second sign-up if the accepted param is delivered twice.
+  const creatingRef = useRef(false);
+
+  // Returns the cleaned form values, or null after showing a message.
+  function validateForm() {
+    const cleanFirstName = firstName.trim();
+    const cleanLastName = lastName.trim();
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (
+      !cleanFirstName ||
+      !cleanLastName ||
+      !cleanEmail ||
+      !password ||
+      !confirmPassword
+    ) {
+      showMessage(t("login.missingTitle"), t("register.missingBody"));
+      return null;
+    }
+
+    // Same minimum as the Supabase Auth password policy, checked here first
+    // so the user gets a clear message before any network request.
+    if (password.length < 8) {
+      showMessage(t("register.shortTitle"), t("register.shortBody"));
+      return null;
+    }
+
+    if (password !== confirmPassword) {
+      showMessage(t("register.mismatchTitle"), t("register.mismatchBody"));
+      return null;
+    }
+
+    return { cleanFirstName, cleanLastName, cleanEmail };
+  }
+
+  // Step 1 -> 2: validate, then show the Privacy Notice. No account yet.
+  function continueToPrivacyNotice() {
+    if (loading || !validateForm()) {
+      return;
+    }
+
+    navigation.navigate("PrivacyNotice", { fromSignup: true });
+  }
+
+  // Step 3: the Privacy Notice sends privacyAccepted: true back here only
+  // after the user explicitly accepted it.
+  useEffect(() => {
+    if (route?.params?.privacyAccepted !== true) {
+      return;
+    }
+
+    navigation.setParams({ privacyAccepted: undefined });
+    void createAccount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.privacyAccepted]);
+
+  async function createAccount() {
+    const values = validateForm();
+
+    if (!values || creatingRef.current) {
+      return;
+    }
+
+    const { cleanFirstName, cleanLastName, cleanEmail } = values;
+
+    creatingRef.current = true;
+    setLoading(true);
+
+    try {
+      const { data, error } =
+        await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            data: {
+              first_name: cleanFirstName,
+              last_name: cleanLastName,
+              full_name: `${cleanFirstName} ${cleanLastName}`,
+              // Recorded only because the user has just accepted the
+              // notice on the previous screen.
+              privacy_accepted: true,
+              privacy_version: PRIVACY_VERSION,
+              privacy_accepted_at:
+                new Date().toISOString(),
+            },
+          },
+        });
+
+      if (error) {
+        showMessage(t("register.failedTitle"), error.message);
+        return;
+      }
+
+      if (data.session) {
+        // Step 4: first-time setup (cannot be skipped with back/swipe).
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Preferences" }],
+        });
+      } else {
+        // Email confirmation is on: the notice was already accepted.
+        showMessage(t("register.verifyTitle"), t("register.verifyBody"));
+
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Login" }],
+        });
+      }
+    } catch (error: any) {
+      showMessage(
+        t("common.connectionProblem"),
+        error?.message || t("register.connectionBody")
+      );
+    } finally {
+      creatingRef.current = false;
+      setLoading(false);
     }
   }
 
-  async function createAccount() {
-  const cleanEmail = email.trim().toLowerCase();
-
-  if (!cleanEmail || !password || !confirmPassword) {
-    showMessage(
-      "Missing information",
-      "Please complete every field."
-    );
-    return;
-  }
-
-  if (password.length < 8) {
-    showMessage(
-      "Password too short",
-      "Your password must contain at least 8 characters."
-    );
-    return;
-  }
-
-  if (password !== confirmPassword) {
-    showMessage(
-      "Passwords do not match",
-      "Enter the same password in both password fields."
-    );
-    return;
-  }
-
-  setLoading(true);
-
-  const { data, error } = await supabase.auth.signUp({
-    email: cleanEmail,
-    password,
-  });
-
-  setLoading(false);
-
-  if (error) {
-    showMessage("Account creation failed", error.message);
-    return;
-  }
-
-  if (!data.session) {
-    showMessage(
-      "Verify your email",
-      "We sent a verification link to your email address."
-    );
-  } else {
-    showMessage(
-      "Account created",
-      "Your account was created successfully."
-    );
-  }
-
-  navigation.replace("Login");
-}
-
   return (
-    <SafeAreaView style={styles.page}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Create your account</Text>
+    <ScrollView
+      contentContainerStyle={styles.page}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.content}>
+        <LanguageSwitch />
 
-        <Text style={styles.subtitle}>
-          Save your scans and product history
-        </Text>
+        <Text style={styles.title}>{t("register.title")}</Text>
 
-        <Text style={styles.label}>Email address</Text>
+        <Text style={styles.subtitle}>{t("register.subtitle")}</Text>
+
+        <Text style={styles.label}>{t("register.firstName")}</Text>
+
+        <TextInput
+          style={styles.input}
+          value={firstName}
+          onChangeText={setFirstName}
+          placeholder={t("register.firstNamePlaceholder")}
+          placeholderTextColor="#AAB8AE"
+          autoCapitalize="words"
+          autoCorrect={false}
+        />
+
+        <Text style={styles.label}>{t("register.lastName")}</Text>
+
+        <TextInput
+          style={styles.input}
+          value={lastName}
+          onChangeText={setLastName}
+          placeholder={t("register.lastNamePlaceholder")}
+          placeholderTextColor="#AAB8AE"
+          autoCapitalize="words"
+          autoCorrect={false}
+        />
+
+        <Text style={styles.label}>{t("common.email")}</Text>
+
         <TextInput
           style={styles.input}
           value={email}
           onChangeText={setEmail}
+          placeholder="you@example.com"
+          placeholderTextColor="#AAB8AE"
           keyboardType="email-address"
           autoCapitalize="none"
-          placeholder="name@example.com"
+          autoCorrect={false}
         />
 
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          placeholder="At least 8 characters"
-        />
+        <Text style={styles.label}>{t("common.password")}</Text>
 
-        <Text style={styles.label}>Confirm password</Text>
-        <TextInput
-          style={styles.input}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          secureTextEntry
-          placeholder="Enter password again"
-        />
+        <View style={styles.passwordContainer}>
+          <TextInput
+            style={styles.passwordInput}
+            value={password}
+            onChangeText={setPassword}
+            placeholder={t("register.passwordPlaceholder")}
+            placeholderTextColor="#AAB8AE"
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TouchableOpacity
+            style={styles.showButton}
+            onPress={() =>
+              setShowPassword((current) => !current)
+            }
+            activeOpacity={0.8}
+          >
+            <Text style={styles.showButtonText}>
+              {showPassword ? t("login.hide") : t("login.show")}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.label}>{t("register.confirmPassword")}</Text>
+
+        <View style={styles.passwordContainer}>
+          <TextInput
+            style={styles.passwordInput}
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder={t("register.confirmPlaceholder")}
+            placeholderTextColor="#AAB8AE"
+            secureTextEntry={!showConfirmPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TouchableOpacity
+            style={styles.showButton}
+            onPress={() =>
+              setShowConfirmPassword(
+                (current) => !current
+              )
+            }
+            activeOpacity={0.8}
+          >
+            <Text style={styles.showButtonText}>
+              {showConfirmPassword ? t("login.hide") : t("login.show")}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.privacyHint}>{t("register.privacyHint")}</Text>
 
         <TouchableOpacity
-  style={[
-    styles.button,
-    loading && { opacity: 0.6 },
-  ]}
-  onPress={createAccount}
-  disabled={loading}
->
-  <Text style={styles.buttonText}>
-    {loading ? "Creating account..." : "Create account"}
-  </Text>
-</TouchableOpacity>
+          style={[
+            styles.button,
+            loading && styles.disabledButton,
+          ]}
+          onPress={continueToPrivacyNotice}
+          disabled={loading}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? t("register.creating") : t("common.continue")}
+          </Text>
+        </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.link}>
-            Already have an account? Log in
+        <TouchableOpacity
+          style={styles.loginLinkButton}
+          onPress={() =>
+            navigation.replace("Login")
+          }
+          activeOpacity={0.8}
+        >
+          <Text style={styles.loginLinkText}>
+            {t("register.haveAccount")}
+            <Text style={styles.loginLinkGreen}>{t("register.logIn")}</Text>
           </Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   page: {
-    flex: 1,
-    backgroundColor: "#F1F7F3",
+    flexGrow: 1,
+    backgroundColor: "#F7F9F7",
     alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
+    paddingHorizontal: 28,
+    paddingVertical: 30,
   },
-  card: {
-    backgroundColor: "#FFFFFF",
+
+  content: {
     width: "100%",
-    maxWidth: 430,
-    borderRadius: 24,
-    padding: 30,
+    maxWidth: 320,
   },
+
   title: {
     color: "#17452F",
-    fontSize: 28,
-    fontWeight: "bold",
-    textAlign: "center",
+    fontSize: 24,
+    fontWeight: "700",
   },
+
   subtitle: {
-    color: "#68766F",
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 28,
+    color: "#63776B",
+    fontSize: 13,
+    marginTop: 5,
+    marginBottom: 21,
   },
+
   label: {
-    color: "#263E32",
-    fontWeight: "600",
+    color: "#17452F",
+    fontSize: 13,
+    fontWeight: "500",
     marginBottom: 7,
   },
+
   input: {
-    borderColor: "#C9D8CF",
+    minHeight: 46,
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    marginBottom: 18,
+    borderColor: "#DCE5DE",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: "#17452F",
+    marginBottom: 15,
   },
+
+  passwordContainer: {
+    position: "relative",
+    marginBottom: 15,
+  },
+
+  passwordInput: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: "#DCE5DE",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingRight: 68,
+    fontSize: 14,
+    color: "#17452F",
+  },
+
+  showButton: {
+    position: "absolute",
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+  },
+
+  showButtonText: {
+    color: "#176B43",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
   button: {
+    minHeight: 48,
     backgroundColor: "#176B43",
     borderRadius: 12,
-    padding: 15,
+    justifyContent: "center",
     alignItems: "center",
+    marginTop: 4,
   },
+
+  disabledButton: {
+    opacity: 0.6,
+  },
+
   buttonText: {
     color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: 14,
+    fontWeight: "700",
   },
-  link: {
-    color: "#176B43",
-    textAlign: "center",
-    fontWeight: "600",
+
+  privacyHint: {
+    color: "#68766F",
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 10,
+  },
+
+  loginLinkButton: {
+    alignItems: "center",
     marginTop: 22,
+  },
+
+  loginLinkText: {
+    color: "#68766F",
+    fontSize: 14,
+  },
+
+  loginLinkGreen: {
+    color: "#176B43",
+    fontWeight: "bold",
   },
 });
