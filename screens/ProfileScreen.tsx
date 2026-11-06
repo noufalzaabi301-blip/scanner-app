@@ -10,7 +10,7 @@
 //      Appearance     – light / dark / system theme and text size
 //   4. Admin          – only for approved admins
 //   5. Support        – FAQs, Contact Us, About, Privacy Notice
-//   6. Log out
+//   6. Log out, Delete account
 // Tapping the account card opens ProfileSettings (edit name / password).
 // ---------------------------------------------------------------------------
 
@@ -27,6 +27,7 @@ import SettingsRow, {
   SettingsGroup,
   SettingsSectionTitle,
 } from "../components/SettingsRow";
+import { deleteMyAccount } from "../lib/account";
 import { useIsAdmin } from "../lib/adminAccess";
 import {
   APP_VERSION,
@@ -100,6 +101,7 @@ export default function ProfileScreen({ navigation }: any) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [savingField, setSavingField] = useState<ToggleField | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [banner, setBanner] = useState<Banner>(null);
 
   // ----- Loading -----------------------------------------------------------
@@ -237,6 +239,64 @@ export default function ProfileScreen({ navigation }: any) {
       showMessage(t("profile.logoutFailed"), error?.message);
     } finally {
       setLoggingOut(false);
+    }
+  }
+
+  // ----- Delete account ------------------------------------------------------
+
+  async function deleteAccount() {
+    // Two confirmations, because this cannot be undone.
+    const first = await confirmAction(
+      t("profile.deleteConfirmTitle"),
+      t("profile.deleteConfirmBody"),
+      { confirmText: t("common.continue"), destructive: true }
+    );
+
+    if (!first) {
+      return;
+    }
+
+    const second = await confirmAction(
+      t("profile.deleteFinalTitle"),
+      t("profile.deleteFinalBody"),
+      { confirmText: t("profile.deleteAccount"), destructive: true }
+    );
+
+    if (!second) {
+      return;
+    }
+
+    // Developers only: an explicit, separate choice about the food
+    // database's developer_users table. "Keep" (cancel) is the default.
+    // Normal customers never see this and never affect the food database.
+    let removeDeveloperAccess = false;
+
+    if (isAdmin) {
+      removeDeveloperAccess = await confirmAction(
+        t("profile.deleteDevTitle"),
+        // The food project has its own logins, so the developer is matched
+        // by this email on the server, never by user id.
+        t("profile.deleteDevBody", {
+          email: (account?.email ?? "").trim().toLowerCase(),
+        }),
+        {
+          confirmText: t("profile.deleteDevRemove"),
+          cancelText: t("profile.deleteDevKeep"),
+          destructive: true,
+        }
+      );
+    }
+
+    setDeleting(true);
+
+    try {
+      await deleteMyAccount(removeDeveloperAccess);
+      showMessage(t("profile.deletedTitle"), t("profile.deletedBody"));
+      navigation.reset({ index: 0, routes: [{ name: ROUTES.Login }] });
+    } catch (error: any) {
+      showMessage(t("profile.deleteFailed"), error?.message);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -590,6 +650,24 @@ export default function ProfileScreen({ navigation }: any) {
             )}
           </TouchableOpacity>
         )}
+
+        {account && (
+          <TouchableOpacity
+            style={[styles.deleteButton, deleting && styles.disabled]}
+            onPress={deleteAccount}
+            disabled={deleting || loggingOut}
+            accessibilityRole="button"
+          >
+            {deleting ? (
+              <ActivityIndicator color={COLORS.danger} />
+            ) : (
+              <>
+                <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
+                <Text style={styles.deleteText}>{t("profile.deleteAccount")}</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       <BottomNavigation navigation={navigation} activeTab="Profile" />
@@ -772,6 +850,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3C5C0",
     marginTop: 24,
+  },
+
+  deleteButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 12,
+  },
+
+  deleteText: {
+    color: COLORS.danger,
+    fontSize: 14,
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
 
   logoutText: {

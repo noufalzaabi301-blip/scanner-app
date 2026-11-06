@@ -30,6 +30,8 @@ Developed as a project at **United Arab Emirates University**.
 - [Deploying the web version on Netlify](#deploying-the-web-version-on-netlify)
 - [Normal users and developers](#normal-users-and-developers)
 - [Supabase setup](#supabase-setup)
+- [Password reset (email code)](#password-reset-email-code)
+- [Delete account](#delete-account)
 - [Edge Functions](#edge-functions)
 - [Testing](#testing)
 - [Languages and RTL](#languages-and-rtl)
@@ -71,7 +73,7 @@ Developed as a project at **United Arab Emirates University**.
   - **Copy text** to the clipboard
 
 ### Account and profile
-- Sign up, log in, forgot / reset password.
+- Sign up, log in, reset a forgotten password with an emailed code, delete account.
 - **Privacy Notice must be accepted before an account is created.**
 - After the first login or sign-up, the app opens directly on the **Scan**
   screen until the user logs out.
@@ -145,6 +147,7 @@ lib/
   productSubmission.ts       Opt-in product submissions
   adminAccess.ts             Admin check + review function calls
   userPreferences.ts         Shared user_preferences access
+  allergyValidation.ts       Rules for custom allergies typed in Preferences
   foodTranslation.ts         English ↔ Arabic label translation + cache
   barcode.ts, text.ts        Small helpers
   constants.ts               Colours, routes, storage keys, allergy options
@@ -163,10 +166,12 @@ supabase/functions/
   approve-product-submission/
   reject-product-submission/
   translate-food-text/
+  delete-account/
   _shared/review.ts
 scripts/
   testScreening.ts           Screening engine tests
   testI18n.ts                Translation tests
+  testAllergyValidation.ts   Custom allergy input validation tests
 ```
 
 ---
@@ -308,7 +313,6 @@ their own rows):
 
 Also required:
 - Storage buckets `avoid-products` and `product-submissions` (private).
-- RPC `is_registered_email(check_email)` used by Forgot Password.
 - Auth: email / password sign-in. If email confirmation is on, set the
   project's Site URL (used by password-reset emails on phones).
 
@@ -325,6 +329,45 @@ Also required:
 
 ---
 
+## Password reset (email code)
+
+Forgot Password works with a **code from the email**, so no link has to
+open the app:
+
+1. The user enters their email → Supabase sends a reset email.
+2. The user types the code from the email and a new password → done.
+
+One-time setup in the **user** Supabase project:
+**Authentication → Emails → Templates → Reset Password**, and make the email
+show the code, for example:
+
+```html
+<h2>Reset your LabelLens password</h2>
+<p>Your reset code is:</p>
+<h1>{{ .Token }}</h1>
+<p>Enter this code in the LabelLens app. It expires soon.</p>
+```
+
+(Use a custom SMTP server in **Authentication → Emails → SMTP Settings** for
+real users; Supabase's built-in email only sends a few emails per hour.)
+
+## Delete account
+
+Profile → **Delete account** (asked twice) calls the `delete-account` Edge
+Function. The customer and food databases are handled separately:
+
+| | Customer (user) database | Food database |
+|---|---|---|
+| **Normal customer** | Deletes their login, preferences, Avoid List, submissions and photos | **Nothing changes** |
+| **Developer** | Same as above | Their `developer_users` row is removed **only if** they choose "Remove developer access" in a separate question (default: keep). It is matched by the signed-in **email** (`trim().toLowerCase()`), because the two projects have separate logins and user ids. If no developer has that email, an error is shown and **nothing** is deleted. |
+| **Approved products** | – | **Never deleted** |
+
+The food database service-role key (`FOOD_SUPABASE_SERVICE_ROLE_KEY`) is
+used only inside the Edge Function, and only for that developer step. The
+function only ever deletes the logged-in caller's own data.
+
+---
+
 ## Edge Functions
 
 | Function | Purpose | Secrets |
@@ -333,6 +376,7 @@ Also required:
 | `translate-food-text` | Translates label text and allergy names (English ↔ Arabic) with Gemini | `GEMINI_API_KEY` |
 | `approve-product-submission` | Admin only: copies a submission into the food database (duplicate-safe) | `FOOD_SUPABASE_URL`, `FOOD_SUPABASE_SERVICE_ROLE_KEY` |
 | `reject-product-submission` | Admin only: rejects a submission with optional notes | – |
+| `delete-account` | Deletes the caller's own account, photos and personal data (Profile → Delete account); optionally removes a developer's own `developer_users` row in the food DB | `FOOD_SUPABASE_URL`, `FOOD_SUPABASE_SERVICE_ROLE_KEY` (only for the developer option) |
 
 ### Deploying the Edge Functions
 
@@ -356,6 +400,7 @@ npx supabase secrets set GEMINI_API_KEY=your-gemini-key
 npx supabase functions deploy approve-product-submission
 npx supabase functions deploy reject-product-submission
 npx supabase functions deploy translate-food-text
+npx supabase functions deploy delete-account
 ```
 
 Then, in the SQL editor of the **food** project, run
@@ -373,6 +418,7 @@ approved products and all writes go through `approve-product-submission`.
 npx tsc --noEmit                    # type check the whole app
 npx tsx scripts/testScreening.ts    # allergy + halal screening tests
 npx tsx scripts/testI18n.ts         # translation + screening-text tests
+npx tsx scripts/testAllergyValidation.ts  # custom allergy input rules
 ```
 
 Manual checklist:

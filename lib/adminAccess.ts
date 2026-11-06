@@ -167,7 +167,7 @@ export async function approveSubmissionForScanner(
 //   JSON body holds { ok: false, error: "..." }.
 // - FunctionsRelayError / FunctionsFetchError: the function could not be
 //   reached (not deployed, offline, CORS); error.message explains it.
-async function readFunctionError(error: any): Promise<string> {
+export async function readFunctionError(error: any): Promise<string> {
   const response = error?.context;
 
   if (response && typeof response.text === "function") {

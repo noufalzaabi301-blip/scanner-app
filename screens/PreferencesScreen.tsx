@@ -15,22 +15,11 @@ import {
 } from "react-native";
 
 import {
-  ALLERGY_OPTIONS,
-  allergyEnglishName,
-  allergyLabel,
-  findAllergyOption,
-} from "../lib/constants";
+  MAX_ALLERGY_LENGTH,
+  validateCustomAllergy,
+} from "../lib/allergyValidation";
+import { ALLERGY_OPTIONS, allergyLabel } from "../lib/constants";
 import { prepareAllergyLabels } from "../lib/foodTranslation";
-
-// True when two allergy names mean the same thing, in any language.
-function sameAllergy(a: string, b: string): boolean {
-  const key = (value: string) => {
-    const english = (allergyEnglishName(value) ?? value).toLowerCase();
-    return findAllergyOption(english)?.value.toLowerCase() ?? english;
-  };
-
-  return key(a) === key(b);
-}
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
@@ -96,6 +85,8 @@ export default function PreferencesScreen({
 
   const [customInput, setCustomInput] =
     useState("");
+  // Validation message shown under the custom allergy field.
+  const [customError, setCustomError] = useState("");
 
   // Optional product-submission consent (default: off).
   const [submitProducts, setSubmitProducts] =
@@ -255,37 +246,26 @@ export default function PreferencesScreen({
     });
   }
 
+  // Adds a custom allergy ONLY after it passes validation
+  // (lib/allergyValidation.ts). Invalid text is never added; the reason is
+  // shown under the field and in an alert.
   function addCustomAllergy() {
-    const value = customInput.trim();
+    const result = validateCustomAllergy(
+      customInput,
+      selectedAllergies,
+      customAllergies
+    );
 
-    if (!value) {
-      showMessage(
-        t("prefs.enterAllergyTitle"),
-        t("prefs.enterAllergyBody")
-      );
+    if (!result.ok) {
+      setCustomError(t(result.message));
+      showMessage(t(result.title), t(result.message));
       return;
     }
 
-    // Compare by meaning, not spelling: "حليب", "milk" and "Milk" are the
-    // same allergy, so it cannot be added twice in two languages.
-    const alreadyExists = [
-      ...selectedAllergies,
-      ...customAllergies,
-    ].some((item) => sameAllergy(item, value));
+    setCustomError("");
 
-    if (alreadyExists) {
-      showMessage(
-        t("prefs.alreadyAddedTitle"),
-        t("prefs.alreadyAddedBody")
-      );
-      return;
-    }
-
-    // Typing a standard allergy in either language (e.g. "بيض" or "egg")
-    // ticks the standard option instead of adding a custom one.
-    const standardMatch = findAllergyOption(
-      allergyEnglishName(value) ?? value
-    )?.value;
+    const value = result.value;
+    const standardMatch = result.standardOption;
 
     if (standardMatch) {
       setSelectedAllergies((current) => [
@@ -635,11 +615,19 @@ export default function PreferencesScreen({
 
             <View style={styles.customInputRow}>
               <TextInput
-                style={styles.customInput}
+                style={[
+                  styles.customInput,
+                  customError ? styles.customInputError : null,
+                ]}
                 value={customInput}
-                onChangeText={setCustomInput}
+                onChangeText={(value) => {
+                  setCustomInput(value);
+                  setCustomError("");
+                }}
                 placeholder={t("prefs.addPlaceholder")}
                 placeholderTextColor="#9AA9A0"
+                maxLength={MAX_ALLERGY_LENGTH + 10}
+                autoCorrect={false}
                 onSubmitEditing={
                   addCustomAllergy
                 }
@@ -652,6 +640,12 @@ export default function PreferencesScreen({
                 <Text style={styles.addButtonText}>{t("prefs.add")}</Text>
               </TouchableOpacity>
             </View>
+
+            {customError ? (
+              <Text style={styles.customErrorText}>{customError}</Text>
+            ) : (
+              <Text style={styles.customHint}>{t("prefs.allergyHint")}</Text>
+            )}
           </View>
         )}
 
@@ -705,6 +699,24 @@ export default function PreferencesScreen({
 }
 
 const styles = StyleSheet.create({
+  customInputError: {
+    borderColor: "#B42318",
+  },
+
+  customErrorText: {
+    color: "#B42318",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+  },
+
+  customHint: {
+    color: "#68766F",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+  },
+
   loadError: {
     color: "#B42318",
     backgroundColor: "#FDECEA",
