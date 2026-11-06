@@ -59,6 +59,13 @@ Developed as a project at **United Arab Emirates University**.
   highlighted ingredients.
 - **Halal screening** (optional) with links to look up flagged E-numbers on
   [HalalCodeCheck](https://halalcodecheck.com/).
+- Where settings live:
+  - **Profile**: name, email, links to the screens below, Log out, Delete account.
+  - **Profile settings** (`ProfileSettingsScreen`): edit first / last name, change password.
+  - **Allergy preferences** (`PreferencesScreen`): allergy yes/no, standard and custom allergies.
+  - **Halal and product verification** (`HalalAndVerificationScreen`): the only place with the
+    Halal preference and "Send scanned products for verification" switches
+    (saved immediately to `public.user_preferences`).
 - Allergies can be typed in **English or Arabic** (e.g. "سكر" is matched as
   "sugar").
 - Product photos are shown for database products too (taken from Open Food

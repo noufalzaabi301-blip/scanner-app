@@ -1,14 +1,11 @@
 // ---------------------------------------------------------------------------
 // screens/ProfileSettingsScreen.tsx
-// Profile settings:
-//   1. Preferences – halal preference and "Send scanned products for
-//      verification". This is the ONLY place these two switches exist
-//      (the allergy editor does not show them). Each switch loads from and
-//      saves immediately to public.user_preferences, so the value is kept
-//      after restarting the app.
-//   2. Your details – first / last name (Supabase auth user metadata);
+// Profile settings (account details only):
+//   1. Your details – first / last name (Supabase auth user metadata);
 //      the email is read-only because changing it needs verification.
-//   3. Change password.
+//   2. Change password.
+// Halal and product-verification switches are NOT here; they live only in
+// HalalAndVerificationScreen.tsx.
 // ---------------------------------------------------------------------------
 
 import { useCallback, useState } from "react";
@@ -18,30 +15,17 @@ import {
   StyleSheet,
 } from "react-native";
 
-import SettingsRow, {
-  SettingsDivider,
-  SettingsGroup,
-} from "../components/SettingsRow";
-import { COLORS, ROUTES } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
 import {
-  EMPTY_PREFERENCES,
-  fetchPreferencesForUser,
-  type UserPreferences,
-} from "../lib/userPreferences";
-import {
   SafeAreaView,
   ScrollView,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "../components/Themed";
-
-type ToggleField = "prefers_halal" | "submit_products_for_review";
 
 type Status = { kind: "success" | "error"; text: string } | null;
 
@@ -63,13 +47,6 @@ export default function ProfileSettingsScreen({ navigation }: any) {
   // Inline messages under each form, in addition to the alert.
   const [profileStatus, setProfileStatus] = useState<Status>(null);
   const [passwordStatus, setPasswordStatus] = useState<Status>(null);
-
-  // Halal + submission consent (from public.user_preferences).
-  const [userId, setUserId] = useState<string | null>(null);
-  const [preferences, setPreferences] =
-    useState<UserPreferences>(EMPTY_PREFERENCES);
-  const [savingField, setSavingField] = useState<ToggleField | null>(null);
-  const [preferenceStatus, setPreferenceStatus] = useState<Status>(null);
 
   // Reload whenever the screen is shown, so values are always current.
   useFocusEffect(
@@ -94,64 +71,12 @@ export default function ProfileSettingsScreen({ navigation }: any) {
       return;
     }
 
-    setUserId(user.id);
     setEmail(user.email ?? "");
     setFirstName(String(user.user_metadata?.first_name ?? ""));
     setLastName(String(user.user_metadata?.last_name ?? ""));
 
-    try {
-      setPreferences(await fetchPreferencesForUser(user.id));
-    } catch {
-      setPreferenceStatus({ kind: "error", text: t("profile.loadFailed") });
-    }
-
     setLoading(false);
   }
-
-  // Saves one switch immediately. Row Level Security limits the update to
-  // the user's own row; .select() confirms a row was really changed.
-  async function toggleSetting(field: ToggleField, value: boolean) {
-    if (!userId || savingField) {
-      return;
-    }
-
-    // The row is created by the allergy setup; send the user there first.
-    if (!preferences.exists) {
-      navigation.navigate(ROUTES.Preferences);
-      return;
-    }
-
-    const previous = preferences;
-
-    setPreferences(
-      field === "prefers_halal"
-        ? { ...preferences, prefersHalal: value }
-        : { ...preferences, submitProducts: value }
-    );
-    setSavingField(field);
-    setPreferenceStatus(null);
-
-    try {
-      const { data, error } = await supabase
-        .from("user_preferences")
-        .update({ [field]: value, updated_at: new Date().toISOString() })
-        .eq("user_id", userId)
-        .select("user_id");
-
-      if (error || !data || data.length === 0) {
-        throw error ?? new Error("No row updated");
-      }
-
-      setPreferenceStatus({ kind: "success", text: t("profile.savedSetting") });
-    } catch {
-      setPreferences(previous);
-      setPreferenceStatus({ kind: "error", text: t("profile.saveSettingFailed") });
-    } finally {
-      setSavingField(null);
-    }
-  }
-
-  const switchTrack = { false: "#C9D4CC", true: "#8FC9A5" };
 
   async function saveProfile() {
     const cleanFirstName = firstName.trim();
@@ -297,65 +222,7 @@ export default function ProfileSettingsScreen({ navigation }: any) {
         <View style={styles.card}>
           <Text style={styles.title}>{t("title.profileSettings")}</Text>
 
-          {/* 1. Preferences: the only place these two switches exist. */}
-          <Text style={styles.sectionTitle}>{t("settings.preferences")}</Text>
-
-          <SettingsGroup>
-            <SettingsRow
-              icon="restaurant-outline"
-              title={t("profile.halal")}
-              right={
-                savingField === "prefers_halal" ? (
-                  <ActivityIndicator color={COLORS.primary} />
-                ) : (
-                  <Switch
-                    trackColor={switchTrack}
-                    thumbColor={preferences.prefersHalal ? "#176B43" : "#F4F6F5"}
-                    value={preferences.prefersHalal}
-                    onValueChange={(value) => toggleSetting("prefers_halal", value)}
-                    disabled={savingField !== null}
-                    accessibilityLabel={t("profile.halal")}
-                  />
-                )
-              }
-            />
-
-            <SettingsDivider />
-
-            <SettingsRow
-              icon="cloud-upload-outline"
-              title={t("profile.submissions")}
-              subtitle={t("profile.submissionsHint")}
-              right={
-                savingField === "submit_products_for_review" ? (
-                  <ActivityIndicator color={COLORS.primary} />
-                ) : (
-                  <Switch
-                    trackColor={switchTrack}
-                    thumbColor={preferences.submitProducts ? "#176B43" : "#F4F6F5"}
-                    value={preferences.submitProducts}
-                    onValueChange={(value) =>
-                      toggleSetting("submit_products_for_review", value)
-                    }
-                    disabled={savingField !== null}
-                    accessibilityLabel={t("prefs.submitA11y")}
-                  />
-                )
-              }
-            />
-          </SettingsGroup>
-
-          <Text style={styles.preferenceNote}>
-            {preferences.exists
-              ? t("prefs.submitBody")
-              : t("profile.setupPreferences")}
-          </Text>
-
-          <StatusText status={preferenceStatus} />
-
-          <View style={styles.divider} />
-
-          {/* 2. Your details */}
+          {/* 1. Your details */}
           <Text style={styles.sectionTitle}>{t("settings.details")}</Text>
 
           <Text style={styles.label}>{t("settings.firstName")}</Text>
@@ -400,6 +267,7 @@ export default function ProfileSettingsScreen({ navigation }: any) {
 
           <View style={styles.divider} />
 
+          {/* 2. Change password */}
           <Text style={styles.sectionTitle}>{t("settings.changePassword")}</Text>
 
           <Text style={styles.label}>{t("settings.currentPassword")}</Text>
@@ -452,13 +320,6 @@ const styles = StyleSheet.create({
   page: {
     flex: 1,
     backgroundColor: "#F7F9F7",
-  },
-
-  preferenceNote: {
-    color: "#68766F",
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 8,
   },
 
   loadingPage: {

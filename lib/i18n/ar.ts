@@ -260,6 +260,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "account.functionRelay": "تعذّر على Supabase تشغيل وظيفة حذف الحساب: {message}",
   "account.serverError": "أرجع الخادم خطأ (HTTP {status}).",
   "account.unknownError": "تعذّر حذف الحساب. يرجى المحاولة مرة أخرى.",
+  "halalVerify.setupButton": "إعداد تفضيلات الحساسية",
   "faq.title": "الأسئلة الشائعة",
   "faq.subtitle": "إجابات سريعة حول استخدام LabelLens.",
   "faq.q1": "ما هو LabelLens؟",

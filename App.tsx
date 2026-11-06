@@ -23,6 +23,7 @@ import AvoidListScreen from "./screens/AvoidListScreen";
 import ContactUsScreen from "./screens/ContactUsScreen";
 import FAQsScreen from "./screens/FAQsScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
+import HalalAndVerificationScreen from "./screens/HalalAndVerificationScreen";
 import HomeScreen from "./screens/HomeScreen";
 import LoginScreen from "./screens/LoginScreen";
 import PreferencesScreen from "./screens/PreferencesScreen";
@@ -75,6 +76,7 @@ export type RootStackParamList = {
   Avoid: undefined;
   Profile: undefined;
   ProfileSettings: undefined;
+  HalalAndVerification: undefined;
   FAQs: undefined;
   ContactUs: undefined;
   AboutLabelLens: undefined;
@@ -300,6 +302,12 @@ function AppNavigator() {
             name="ProfileSettings"
             component={ProfileSettingsScreen}
             options={{ title: t("title.profileSettings") }}
+          />
+
+          <Stack.Screen
+            name="HalalAndVerification"
+            component={HalalAndVerificationScreen}
+            options={{ title: t("profile.halalAndVerification") }}
           />
 
           <Stack.Screen

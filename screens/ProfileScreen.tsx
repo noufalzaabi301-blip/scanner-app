@@ -3,10 +3,11 @@
 // Profile & Settings hub.
 //
 // Sections:
-//   1. Account card   – real name and email from the Supabase auth user
-//   2. Preferences    – allergy editor link, and a summary row for the
-//                       halal / submission switches (which are edited only
-//                       in Profile settings)
+//   1. Account card   – avatar / initials, first name, last name and email
+//                       from the Supabase auth user (profile info only)
+//   2. Preferences    – links to the allergy editor and to the Halal and
+//                       product verification screen. No switches here: the
+//                       two switches exist only in HalalAndVerificationScreen.
 //   3. Language       – English / Arabic, saved on the device
 //      Appearance     – light / dark / system theme and text size
 //   4. Admin          – only for approved admins
@@ -262,10 +263,6 @@ export default function ProfileScreen({ navigation }: any) {
       ? joinList(allergyLabelList(preferences.allergies, t))
       : t("profile.noAllergies");
 
-  const switchColors = {
-    trackColor: { false: "#C9D4CC", true: "#8FC9A5" },
-  };
-
   return (
     <SafeAreaView style={styles.page}>
       <ScrollView
@@ -295,10 +292,27 @@ export default function ProfileScreen({ navigation }: any) {
                 {fullName || t("profile.noName")}
               </Text>
 
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>{t("settings.firstName")}</Text>
+                <Text style={styles.infoValue} numberOfLines={1}>
+                  {account.firstName || "—"}
+                </Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>{t("settings.lastName")}</Text>
+                <Text style={styles.infoValue} numberOfLines={1}>
+                  {account.lastName || "—"}
+                </Text>
+              </View>
+
               {/* Email is LTR content; keep it readable in Arabic too. */}
-              <Text style={styles.email} numberOfLines={1}>
-                {account.email}
-              </Text>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>{t("settings.email")}</Text>
+                <Text style={styles.infoValue} numberOfLines={1}>
+                  {account.email}
+                </Text>
+              </View>
             </View>
           </TouchableOpacity>
         ) : (
@@ -373,17 +387,13 @@ export default function ProfileScreen({ navigation }: any) {
 
               <SettingsDivider />
 
-              {/* Halal and submission switches live only in Profile
-                  settings; this row shows their current values. */}
+              {/* Link only; the switches are on that screen. */}
               <SettingsRow
                 icon="restaurant-outline"
                 title={t("profile.halalAndVerification")}
-                subtitle={`${t("profile.halal")}: ${
-                  preferences.prefersHalal ? t("pdf.on") : t("pdf.off")
-                } · ${t("profile.verificationShort")}: ${
-                  preferences.submitProducts ? t("pdf.on") : t("pdf.off")
-                }`}
-                onPress={() => navigation.navigate(ROUTES.ProfileSettings)}
+                onPress={() =>
+                  navigation.navigate(ROUTES.HalalAndVerification)
+                }
               />
             </SettingsGroup>
 
@@ -672,6 +682,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     marginTop: 4,
+  },
+
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+    marginTop: 4,
+  },
+
+  infoLabel: {
+    color: "#62756A",
+    fontSize: 12,
+    lineHeight: 17,
+    minWidth: 92,
+  },
+
+  infoValue: {
+    flex: 1,
+    color: "#17452F",
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
   },
 
   signInButton: {

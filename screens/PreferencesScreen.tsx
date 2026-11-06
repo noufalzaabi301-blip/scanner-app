@@ -4,7 +4,7 @@
 // allergy yes/no, the standard allergy list, custom allergies, Save.
 //
 // The halal preference and the product-submission consent are NOT edited
-// here; they live only in Profile settings (ProfileSettingsScreen). This
+// here; they live only in HalalAndVerificationScreen. This
 // screen never overwrites them: on edit they are left out of the save, and
 // a brand-new row starts with both turned off.
 // ---------------------------------------------------------------------------

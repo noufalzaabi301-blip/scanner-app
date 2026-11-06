@@ -50,6 +50,7 @@ export const ROUTES = {
   Avoid: "Avoid",
   Profile: "Profile",
   ProfileSettings: "ProfileSettings",
+  HalalAndVerification: "HalalAndVerification",
   FAQs: "FAQs",
   ContactUs: "ContactUs",
   AboutLabelLens: "AboutLabelLens",

@@ -259,6 +259,7 @@ const en = {
   "account.functionRelay": "Supabase could not run the delete-account function: {message}",
   "account.serverError": "The server returned an error (HTTP {status}).",
   "account.unknownError": "The account could not be deleted. Please try again.",
+  "halalVerify.setupButton": "Set up allergy preferences",
   "faq.title": "Frequently Asked Questions",
   "faq.subtitle": "Quick answers about using LabelLens.",
   "faq.q1": "What is LabelLens?",
