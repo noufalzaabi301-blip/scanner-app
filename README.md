@@ -375,6 +375,18 @@ The food database service-role key (`FOOD_SUPABASE_SERVICE_ROLE_KEY`) is
 used only inside the Edge Function, and only for that developer step. The
 function only ever deletes the logged-in caller's own data.
 
+Inside the function, the caller's token is used **only** to verify who is
+signed in. All customer-data deletions (Avoid List, preferences,
+submissions, photos, the login) run with a separate service-role client
+that does not carry the caller's token, always filtered by the verified
+user id.
+
+If deletion fails with **"permission denied for table …"**, the
+service_role has no rights on that table: run
+`supabase/sql/user_database_delete_account.sql` once in the SQL editor of
+the **user** project (it grants rights to service_role only, never to app
+users).
+
 ---
 
 ## Edge Functions

@@ -28,7 +28,19 @@
 //   - The food database service-role key (FOOD_SUPABASE_SERVICE_ROLE_KEY)
 //     is read only here, on the server, and only in that case.
 //
-// Deploy:  npx supabase functions deploy delete-account
+// Two clients in the customer project (never mixed):
+//   - userAuth: built with the caller's Authorization token, used ONLY to
+//     verify who is calling (auth.getUser). It never deletes anything.
+//   - admin:    built with SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY and NO
+//     caller Authorization header, so it runs as service_role. It does every
+//     customer-data deletion, always filtered to the verified user's id.
+//
+// "permission denied for table …" (Postgres 42501) means the service_role
+// has no GRANT on that table; run supabase/sql/user_database_delete_account.sql
+// in the USER project's SQL editor.
+//
+// Deploy (Windows):
+//   npx.cmd supabase@latest functions deploy delete-account --no-verify-jwt
 // ---------------------------------------------------------------------------
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -47,6 +59,60 @@ function json(status: number, body: Record<string, unknown>): Response {
   });
 }
 
+const NO_SESSION = { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false };
+
+// New-style secret keys start with "sb_secret_"; legacy keys are JWTs whose
+// payload has role "service_role". A publishable / anon key here would make
+// every delete run without service-role rights.
+function isServiceRoleKey(key: string): boolean {
+  if (key.startsWith("sb_secret_")) {
+    return true;
+  }
+
+  if (key.startsWith("sb_publishable_")) {
+    return false;
+  }
+
+  try {
+    const payload = key.split(".")[1];
+    const decoded = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
+    );
+    return decoded?.role === "service_role";
+  } catch {
+    return false;
+  }
+}
+
+// Turns a database error into a readable message that keeps the real
+// Postgres error text and code.
+function describeDbError(
+  step: string,
+  error: { message?: string; code?: string; details?: string | null; hint?: string | null }
+): string {
+  const parts = [`Database deletion failed (${step}): ${error.message ?? "unknown error"}`];
+
+  if (error.code) {
+    parts.push(`[code ${error.code}]`);
+  }
+
+  if (error.details) {
+    parts.push(error.details);
+  }
+
+  if (error.hint) {
+    parts.push(`Hint: ${error.hint}`);
+  }
+
+  if (error.code === "42501") {
+    parts.push(
+      "The service_role has no permission on this table. Run supabase/sql/user_database_delete_account.sql in the USER project's SQL editor."
+    );
+  }
+
+  return parts.join(" ");
+}
+
 // Removes every file stored under "<userId>/" in a bucket.
 async function removeUserFiles(
   db: SupabaseClient,
@@ -59,8 +125,13 @@ async function removeUserFiles(
       .list(userId, { limit: 1000 });
 
     if (error) {
-      // Missing bucket or no folder: nothing to remove.
-      return;
+      // A bucket that does not exist means there is nothing to remove; any
+      // other error (e.g. permissions) is reported, not ignored.
+      if (/not\s*found/i.test(error.message ?? "")) {
+        return;
+      }
+
+      throw new Error(describeDbError(`listing photos in ${bucket}`, error as any));
     }
 
     const paths = (data ?? []).map((file) => `${userId}/${file.name}`);
@@ -72,12 +143,13 @@ async function removeUserFiles(
     const { error: removeError } = await db.storage.from(bucket).remove(paths);
 
     if (removeError) {
-      throw new Error(`Database deletion failed (photos in ${bucket}): ${removeError.message}`);
+      throw new Error(describeDbError(`photos in ${bucket}`, removeError as any));
     }
   }
 }
 
-// Deletes rows of one table; a missing table is ignored.
+// Deletes the user's rows from one table (always filtered by the verified
+// user's id); a missing table is ignored.
 async function deleteRows(
   db: SupabaseClient,
   table: string,
@@ -87,7 +159,7 @@ async function deleteRows(
   const { error } = await db.from(table).delete().eq(column, userId);
 
   if (error && error.code !== "42P01") {
-    throw new Error(`Database deletion failed (${table}): ${error.message}`);
+    throw new Error(describeDbError(table, error));
   }
 }
 
@@ -129,9 +201,7 @@ async function removeFoodDeveloperAccess(
     );
   }
 
-  const foodDb = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const foodDb = createClient(url, key, { auth: NO_SESSION });
 
   // Case-insensitive lookup. "%" and "_" are escaped so they are matched
   // literally (an "_" in an email must not act as a wildcard).
@@ -192,6 +262,7 @@ Deno.serve(async (req) => {
     // deployed to (it must be the USER / customer project).
     const url = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey;
 
     if (!url || !serviceKey) {
       return json(500, {
@@ -201,14 +272,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    const db = createClient(url, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    if (!isServiceRoleKey(serviceKey)) {
+      return json(500, {
+        ok: false,
+        error:
+          "Server setup error: SUPABASE_SERVICE_ROLE_KEY is not a service-role (secret) key, so delete-account cannot remove data.",
+      });
+    }
 
     // Who is calling? Only their own account can be deleted.
-    const token = (req.headers.get("Authorization") ?? "")
-      .replace(/^Bearer\s+/i, "")
-      .trim();
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
     // verify_jwt is off for this function (supabase/config.toml), so the
     // login token is verified here.
@@ -219,7 +293,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: auth, error: authError } = await db.auth.getUser(token);
+    // 1. User-auth client: carries the caller's token and is used ONLY to
+    //    verify the signed-in user. Nothing is deleted with it.
+    const userAuth = createClient(url, anonKey!, {
+      auth: NO_SESSION,
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+
+    const { data: auth, error: authError } = await userAuth.auth.getUser(token);
 
     if (authError || !auth?.user) {
       return json(401, {
@@ -229,7 +310,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    const userId = auth.user.id;
+    const user = auth.user;
+
+    // 2. Service-role admin client: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+    //    only. The caller's Authorization header is deliberately NOT
+    //    attached, so every request runs as service_role.
+    const admin = createClient(url, serviceKey, { auth: NO_SESSION });
 
     let removeDeveloperAccess = false;
 
@@ -247,7 +333,7 @@ Deno.serve(async (req) => {
 
     if (removeDeveloperAccess) {
       try {
-        await removeFoodDeveloperAccess(auth.user.email);
+        await removeFoodDeveloperAccess(user.email);
         developerAccess = "removed";
       } catch (error) {
         if (error instanceof DeveloperAccessError) {
@@ -257,22 +343,24 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Customer database: the caller's own data only.
+    // Customer database: the caller's own data only, all with the
+    // service-role admin client and filtered by the verified user.id.
     // (Approved products in the food database are never touched.)
-    await removeUserFiles(db, "avoid-products", userId);
-    await removeUserFiles(db, "product-submissions", userId);
+    await removeUserFiles(admin, "avoid-products", user.id);
+    await removeUserFiles(admin, "product-submissions", user.id);
 
-    await deleteRows(db, "avoid_list", "user_id", userId);
-    await deleteRows(db, "product_submissions", "submitted_by", userId);
-    await deleteRows(db, "user_preferences", "user_id", userId);
-    await deleteRows(db, "admin_users", "user_id", userId);
+    await deleteRows(admin, "avoid_list", "user_id", user.id);
+    // product_submissions stores the owner in "submitted_by".
+    await deleteRows(admin, "product_submissions", "submitted_by", user.id);
+    await deleteRows(admin, "user_preferences", "user_id", user.id);
+    await deleteRows(admin, "admin_users", "user_id", user.id);
 
-    const { error: deleteError } = await db.auth.admin.deleteUser(userId);
+    const { error: deleteError } = await admin.auth.admin.deleteUser(user.id);
 
     if (deleteError) {
       return json(500, {
         ok: false,
-        error: `Your data was removed, but the account could not be deleted: ${deleteError.message}`,
+        error: `Your data was removed, but the login could not be deleted: ${deleteError.message}`,
       });
     }
 
