@@ -198,7 +198,11 @@ function AppNavigator() {
     >
       <StatusBar style={isDark ? "light" : "dark"} />
 
-      <NavigationContainer theme={isDark ? DARK_NAV_THEME : LIGHT_NAV_THEME}>
+      <NavigationContainer
+        theme={isDark ? DARK_NAV_THEME : LIGHT_NAV_THEME}
+        // Header, title alignment and back-button side follow the language.
+        direction={isRTL ? "rtl" : "ltr"}
+      >
         <Stack.Navigator
           initialRouteName={startRoute}
           screenOptions={{

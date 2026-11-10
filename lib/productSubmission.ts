@@ -5,6 +5,7 @@
 // verification". Never blocks the app and never shows errors to the user.
 // ---------------------------------------------------------------------------
 
+import { PhotoError, uploadPhotoToBucket } from "./photoStorage";
 import { supabase } from "./supabase";
 import { fetchPreferencesForUser } from "./userPreferences";
 import { asText as text } from "./text";
@@ -30,6 +31,9 @@ export type SubmissionOptions = {
 };
 
 const BUCKET = "product-submissions";
+
+// photoError is set when a photo could not be uploaded.
+export type SubmissionResult = { photoError?: string };
 
 // Products already in the approved LabelLens database are not resubmitted.
 // Matches ONLY the exact source label set in lib/productProviders.ts, so
@@ -62,38 +66,18 @@ function exactIlike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
-// Local photos are uploaded; web URLs (e.g. Open Food Facts) are kept as-is.
+// Photos are uploaded with lib/photoStorage.ts: local photos (permanent
+// copies made right after the camera / picker) are read from their file,
+// and Open Food Facts images are downloaded first, so the submission keeps
+// its own copy in the "product-submissions" bucket under "<userId>/".
+// A failed upload stops the submission (nothing half-saved) and the reason
+// is returned to the caller.
 async function uploadSubmissionPhoto(
   userId: string,
   photoUri: string | null,
-  photoName: string
+  photoName: "front" | "ingredients"
 ): Promise<string | null> {
-  if (!photoUri) {
-    return null;
-  }
-
-  if (/^https?:\/\//i.test(photoUri)) {
-    return photoUri;
-  }
-
-  const response = await fetch(photoUri);
-  const fileData = await response.arrayBuffer();
-
-  const random = Math.random().toString(36).slice(2, 8);
-  const filePath = `${userId}/${Date.now()}-${random}-${photoName}.jpg`;
-
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(filePath, fileData, {
-      contentType: "image/jpeg",
-      upsert: false,
-    });
-
-  if (error) {
-    throw error;
-  }
-
-  return filePath;
+  return uploadPhotoToBucket(BUCKET, userId, photoUri, photoName);
 }
 
 // Reads the saved preference from user_preferences (the source of truth).
@@ -138,18 +122,18 @@ async function alreadySubmitted(
 export async function submitProductForReview(
   product: SubmissionProduct,
   options: SubmissionOptions = {}
-): Promise<void> {
+): Promise<SubmissionResult> {
   let key = "";
   let succeeded = false;
 
   try {
     // Nothing useful to verify, or already an approved product.
     if (!text(product.ingredients) || APPROVED_SOURCE.test(text(product.source))) {
-      return;
+      return {};
     }
 
     if (!text(product.barcode) && !text(product.productName)) {
-      return;
+      return {};
     }
 
     const {
@@ -157,7 +141,7 @@ export async function submitProductForReview(
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return;
+      return {};
     }
 
     key = submissionKey(user.id, product);
@@ -165,7 +149,7 @@ export async function submitProductForReview(
     // Already submitted this session, or being sent right now.
     if (attemptedThisSession.has(key) || inFlight.has(key)) {
       key = "";
-      return;
+      return {};
     }
 
     inFlight.add(key);
@@ -173,14 +157,14 @@ export async function submitProductForReview(
     // Off = nothing is uploaded.
     if (!options.preferenceConfirmed) {
       if (!(await isProductSubmissionEnabled(user.id))) {
-        return;
+        return {};
       }
     }
 
     // Do not upload photos for a product that was already submitted.
     if (await alreadySubmitted(user.id, product)) {
       succeeded = true;
-      return;
+      return {};
     }
 
     const frontPhotoPath = await uploadSubmissionPhoto(
@@ -217,7 +201,14 @@ export async function submitProductForReview(
 
     succeeded = true;
   } catch (error: any) {
-    // Log only a short message; the user never sees this.
+    // A photo that could not be uploaded is reported to the caller, which
+    // tells the user; nothing was inserted, so it is retried next scan.
+    if (error instanceof PhotoError) {
+      console.warn("Product submission photo failed:", error.message);
+      return { photoError: error.message };
+    }
+
+    // Other problems: log only a short message.
     console.warn(
       "Product submission skipped:",
       typeof error?.message === "string" ? error.message : "unknown error"
@@ -232,4 +223,6 @@ export async function submitProductForReview(
       }
     }
   }
+
+  return {};
 }

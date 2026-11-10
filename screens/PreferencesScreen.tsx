@@ -26,6 +26,7 @@ import { ALLERGY_OPTIONS, allergyLabel } from "../lib/constants";
 import { prepareAllergyLabels } from "../lib/foodTranslation";
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
+import { saveAllergyPreferences } from "../lib/userPreferences";
 import { showMessage } from "../lib/ui/messages";
 import {
   ScrollView,
@@ -80,9 +81,6 @@ export default function PreferencesScreen({
   // Validation message shown under the custom allergy field.
   const [customError, setCustomError] = useState("");
 
-  // True when this user already has a user_preferences row.
-  const [hasSavedRow, setHasSavedRow] = useState(false);
-
   const [loading, setLoading] = useState(false);
   const [loadingSaved, setLoadingSaved] =
     useState(true);
@@ -111,8 +109,6 @@ export default function PreferencesScreen({
         if (error) {
           throw error;
         }
-
-        setHasSavedRow(!!data);
 
         if (!data) {
           return;
@@ -296,41 +292,15 @@ export default function PreferencesScreen({
         return;
       }
 
-      // Only allergy columns are written for an existing row, so the halal
-      // preference and submission consent set in Profile settings are kept.
-      // A first-time row starts with both off (changeable in Profile
-      // settings at any time).
-      const { error } = await supabase
-        .from("user_preferences")
-        .upsert(
-          {
-            user_id: user.id,
-            ...(hasSavedRow
-              ? {}
-              : {
-                  prefers_halal: false,
-                  submit_products_for_review: false,
-                }),
-            has_allergies: hasAllergies,
-            allergies: hasAllergies
-              ? selectedAllergies
-              : [],
-            other_allergy:
-              hasAllergies &&
-              customAllergies.length > 0
-                ? customAllergies.join(", ")
-                : null,
-            updated_at:
-              new Date().toISOString(),
-          },
-          {
-            onConflict: "user_id",
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
+      // Saves the allergies and keeps the existing halal preference and
+      // product-verification consent (never sent as null). See
+      // saveAllergyPreferences in lib/userPreferences.ts.
+      await saveAllergyPreferences(user.id, {
+        hasAllergies,
+        allergies: selectedAllergies,
+        otherAllergy:
+          customAllergies.length > 0 ? customAllergies.join(", ") : null,
+      });
 
       showMessage(t("prefs.savedTitle"), t("prefs.savedBody"));
 

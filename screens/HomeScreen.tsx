@@ -57,6 +57,14 @@ import {
   internalProvider,
   openFoodFactsProvider,
 } from "../lib/productProviders";
+import {
+  AVOID_PHOTO_BUCKET,
+  deleteLocalPhoto,
+  isRemoteUrl,
+  persistPhoto,
+  pruneOldLocalPhotos,
+  uploadPhotoToBucket,
+} from "../lib/photoStorage";
 import { submitProductForReview } from "../lib/productSubmission";
 import {
   ITEM_SEPARATORS,
@@ -73,6 +81,8 @@ import {
 } from "../lib/screening";
 import { asText, cleanTagText } from "../lib/text";
 import {
+  DirectionView,
+  Ionicons,
   ContextSafeAreaView as SafeAreaView,
   KeyboardAvoidingView,
   ScrollView,
@@ -343,42 +353,6 @@ async function fetchUserPreferences(): Promise<{
   };
 }
 
-// Uploads one product photo to the "avoid-products" Storage bucket.
-// Returns the Storage path (AvoidListScreen converts it into a signed URL).
-// HTTPS URLs (for example Open Food Facts images) are returned unchanged.
-async function uploadAvoidPhoto(
-  userId: string,
-  photoUri: string | null,
-  photoName: string
-): Promise<string | null> {
-  if (!photoUri) {
-    return null;
-  }
-
-  // Already-uploaded HTTPS URLs do not need uploading again.
-  if (/^https?:\/\//i.test(photoUri)) {
-    return photoUri;
-  }
-
-  const response = await fetch(photoUri);
-  const fileData = await response.arrayBuffer();
-
-  const filePath = `${userId}/${Date.now()}-${photoName}.jpg`;
-
-  const { error } = await supabase.storage
-    .from("avoid-products")
-    .upload(filePath, fileData, {
-      contentType: "image/jpeg",
-      upsert: false,
-    });
-
-  if (error) {
-    throw error;
-  }
-
-  return filePath;
-}
-
 // ---------------------------------------------------------------------------
 // COMPONENT
 // ---------------------------------------------------------------------------
@@ -498,6 +472,11 @@ export default function HomeScreen({ navigation }: any) {
   // (for example after editing the Allergy Profile).
   // If a result is showing, the product is screened again with the
   // CURRENT saved preferences — no new scan or photos needed.
+  // Removes week-old local copies of photos from scans that were never saved.
+  useEffect(() => {
+    pruneOldLocalPhotos();
+  }, []);
+
   useEffect(() => {
     void loadUserPreferences();
 
@@ -648,8 +627,13 @@ export default function HomeScreen({ navigation }: any) {
           activeOpacity={0.8}
           accessibilityLabel={t("home.goBack")}
         >
-          {/* Glyphs are not mirrored by the RTL layout, so swap the arrow. */}
-          <Text style={styles.backArrow}>{isRTL ? "›" : "‹"}</Text>
+          {/* Icon glyphs are not mirrored automatically: Arabic "back"
+              points right, English "back" points left. */}
+          <Ionicons
+            name={isRTL ? "chevron-forward" : "chevron-back"}
+            size={28}
+            color="#176B43"
+          />
         </TouchableOpacity>
         <Text style={styles.topBarTitle}>{title}</Text>
         <View style={styles.topBarSpacer} />
@@ -680,6 +664,7 @@ export default function HomeScreen({ navigation }: any) {
         onRequestClose={closeZoom}
         transparent={false}
       >
+        <DirectionView>
         <View style={styles.zoomPage}>
           <View style={styles.zoomTopBar}>
             <Text style={styles.zoomTitle}>{t("home.zoom")}</Text>
@@ -765,6 +750,7 @@ export default function HomeScreen({ navigation }: any) {
               : t("home.zoomHelp")}
           </Text>
         </View>
+        </DirectionView>
       </Modal>
     );
   }
@@ -1266,8 +1252,10 @@ export default function HomeScreen({ navigation }: any) {
     }
   }
 
-  // Opens the phone's native camera for a package photo.
-  async function takePackagePhoto() {
+  // Gets a package photo from the camera or from the device's photos.
+  // The photo is copied to a permanent app file straight away
+  // (lib/photoStorage.ts), because camera / picker files are temporary.
+  async function getPackagePhoto(source: "camera" | "library") {
     if (takingPhoto) {
       return;
     }
@@ -1279,48 +1267,74 @@ export default function HomeScreen({ navigation }: any) {
 
     try {
       const permissionResult =
-        await ImagePicker.requestCameraPermissionsAsync();
+        source === "camera"
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permissionResult.granted) {
+        const body =
+          source === "camera"
+            ? Platform.OS === "web"
+              ? t("home.cameraPermissionLabelWeb")
+              : t("home.cameraPermissionLabelPhone")
+            : t("home.libraryPermissionBody");
+        const title =
+          source === "camera"
+            ? t("home.cameraPermissionTitle")
+            : t("home.libraryPermissionTitle");
+
         if (Platform.OS === "web") {
-          showMessage(
-            t("home.cameraPermissionTitle"),
-            t("home.cameraPermissionLabelWeb")
-          );
+          showMessage(title, body);
         } else {
-          Alert.alert(
-            t("home.cameraPermissionTitle"),
-            t("home.cameraPermissionLabelPhone"),
-            [
-              { text: t("home.notNow"), style: "cancel" },
-              { text: t("home.openSettings"), onPress: () => Linking.openSettings() },
-            ]
-          );
+          Alert.alert(title, body, [
+            { text: t("home.notNow"), style: "cancel" },
+            { text: t("home.openSettings"), onPress: () => Linking.openSettings() },
+          ]);
         }
         return;
       }
 
-      const result = await ImagePicker.launchCameraAsync({
+      const options: ImagePicker.ImagePickerOptions = {
         mediaTypes: ["images"],
         allowsEditing: false,
         quality: 0.6, // keeps uploads small enough for AI extraction
         exif: false,
         base64: false,
-      });
+      };
+
+      const result =
+        source === "camera"
+          ? await ImagePicker.launchCameraAsync(options)
+          : await ImagePicker.launchImageLibraryAsync(options);
 
       if (result.canceled) {
-        return; // user closed the camera
+        return; // user closed the camera / picker
       }
 
-      const photoUri = result.assets?.[0]?.uri;
+      const temporaryUri = result.assets?.[0]?.uri;
 
-      if (!photoUri) {
+      if (!temporaryUri) {
         showMessage(t("home.photoErrorTitle"), t("home.photoErrorBody"));
+        return;
+      }
+
+      const kind = stage === "ingredients" ? "ingredients" : "front";
+      let photoUri: string;
+
+      try {
+        // Permanent copy; the temporary URI is never kept.
+        photoUri = await persistPhoto(temporaryUri, kind);
+      } catch (copyError: any) {
+        showMessage(
+          t("home.photoNotSavedTitle"),
+          copyError?.message || t("home.photoErrorBody")
+        );
         return;
       }
 
       // Step 1: ingredient label photo.
       if (stage === "ingredients") {
+        deleteLocalPhoto(ingredientsPhotoUri);
         setIngredientsPhotoUri(photoUri);
         setPhotoError(null);
         setStage("front");
@@ -1337,10 +1351,14 @@ export default function HomeScreen({ navigation }: any) {
         frontToAnalyze = photoUri;
       }
     } catch (error) {
-      console.warn("Camera failed:", error);
+      console.warn(`Photo (${source}) failed:`, error);
       showMessage(
-        t("home.cameraUnavailableTitle"),
-        t("home.cameraUnavailableBody")
+        source === "camera"
+          ? t("home.cameraUnavailableTitle")
+          : t("home.libraryUnavailableTitle"),
+        source === "camera"
+          ? t("home.cameraUnavailableBody")
+          : t("home.libraryUnavailableBody")
       );
     } finally {
       setTakingPhoto(false); // always release the button
@@ -1350,6 +1368,14 @@ export default function HomeScreen({ navigation }: any) {
     if (frontToAnalyze) {
       await analyzePhotos(frontToAnalyze);
     }
+  }
+
+  function takePackagePhoto() {
+    return getPackagePhoto("camera");
+  }
+
+  function choosePackagePhoto() {
+    return getPackagePhoto("library");
   }
 
   // -------------------------------------------------------------------------
@@ -1414,7 +1440,15 @@ export default function HomeScreen({ navigation }: any) {
             imageUrl: confirmed.imageUrl ?? null,
           },
           { preferenceConfirmed: true }
-        );
+        ).then((outcome) => {
+          // Runs in the background; only a photo upload problem is shown.
+          if (outcome.photoError) {
+            showMessage(
+              t("home.submissionPhotoFailedTitle"),
+              t("home.submissionPhotoFailedBody", { reason: outcome.photoError })
+            );
+          }
+        });
       }
     } catch (error) {
       if (runId !== screeningRunId.current) {
@@ -1528,29 +1562,52 @@ export default function HomeScreen({ navigation }: any) {
         throw new Error(t("home.sessionExpired"));
       }
 
-      // Photo upload problems are reported but do not block the save.
+      // Photos are uploaded to the "avoid-products" bucket under the
+      // user's folder BEFORE the row is saved. If a photo the user took
+      // cannot be uploaded, nothing is saved and the real reason is shown,
+      // so the user can try again (the local copy is kept).
+      const frontSource = product.frontPhotoUri || product.imageUrl || null;
       let frontPhotoPath: string | null = null;
       let ingredientsPhotoPath: string | null = null;
-      let photoWarning = "";
+      let photoNote = "";
 
       try {
-        // Local front photo first; otherwise the Open Food Facts image.
-        frontPhotoPath = await uploadAvoidPhoto(
+        frontPhotoPath = await uploadPhotoToBucket(
+          AVOID_PHOTO_BUCKET,
           user.id,
-          product.frontPhotoUri || product.imageUrl || null,
+          frontSource,
           "front"
         );
+      } catch (photoError: any) {
+        // An Open Food Facts image that cannot be downloaded is kept as its
+        // public web address (it is not a temporary file); the user is told.
+        if (!product.frontPhotoUri && isRemoteUrl(frontSource)) {
+          frontPhotoPath = frontSource;
+          photoNote = `\n\n${t("home.photosNotSaved", {
+            reason: photoError?.message || t("home.uploadFailed"),
+          })}`;
+        } else {
+          throw new Error(
+            t("home.photoUploadFailed", {
+              reason: photoError?.message || t("home.uploadFailed"),
+            })
+          );
+        }
+      }
 
-        ingredientsPhotoPath = await uploadAvoidPhoto(
+      try {
+        ingredientsPhotoPath = await uploadPhotoToBucket(
+          AVOID_PHOTO_BUCKET,
           user.id,
           product.ingredientsPhotoUri,
           "ingredients"
         );
       } catch (photoError: any) {
-        console.error("Avoid List photo upload failed:", photoError);
-        photoWarning = `\n\n${t("home.photosNotSaved", {
-          reason: photoError?.message || t("home.uploadFailed"),
-        })}`;
+        throw new Error(
+          t("home.photoUploadFailed", {
+            reason: photoError?.message || t("home.uploadFailed"),
+          })
+        );
       }
 
       // Reason = every finding with its source and the exact label text.
@@ -1604,7 +1661,7 @@ export default function HomeScreen({ navigation }: any) {
 
       setSavedAvoid(true);
 
-      showMessage(t("home.addedTitle"), `${t("home.addedBody")}${photoWarning}`);
+      showMessage(t("home.addedTitle"), `${t("home.addedBody")}${photoNote}`);
     } catch (error: any) {
       console.error("Avoid List save failed:", error);
 
@@ -1767,6 +1824,19 @@ export default function HomeScreen({ navigation }: any) {
             activeOpacity={0.8}
           >
             <Text style={styles.takePhotoButtonText}>{buttonText}</Text>
+          </TouchableOpacity>
+
+          {/* Same step with a photo already on the device. */}
+          <TouchableOpacity
+            style={[styles.secondaryButton, takingPhoto && styles.disabledButton]}
+            onPress={choosePackagePhoto}
+            disabled={takingPhoto}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+          >
+            <Text style={styles.secondaryButtonText}>
+              {t("home.choosePhoto")}
+            </Text>
           </TouchableOpacity>
 
           {/* Continue with the ingredient photo already taken. */}
@@ -2202,7 +2272,11 @@ export default function HomeScreen({ navigation }: any) {
             activeOpacity={0.8}
             accessibilityLabel={t("home.closeCamera")}
           >
-            <Text style={styles.closeCameraText}>‹</Text>
+            <Ionicons
+              name={isRTL ? "chevron-forward" : "chevron-back"}
+              size={26}
+              color="#FFFFFF"
+            />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -2303,7 +2377,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   backButton: { width: 42, height: 42, justifyContent: "center", alignItems: "center" },
-  backArrow: { color: "#176B43", fontSize: 36, lineHeight: 38 },
   topBarTitle: { color: "#17452F", fontSize: 17, fontWeight: "800" },
   topBarSpacer: { width: 42 },
 
@@ -2366,7 +2439,7 @@ const styles = StyleSheet.create({
   closeCameraButton: {
     position: "absolute",
     top: 48,
-    left: 18,
+    start: 18, // right side in Arabic
     zIndex: 10,
     width: 44,
     height: 44,
@@ -2375,11 +2448,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  closeCameraText: { color: "#FFFFFF", fontSize: 30 },
   flashButton: {
     position: "absolute",
     top: 48,
-    right: 18,
+    end: 18, // left side in Arabic
     zIndex: 10,
     width: 44,
     height: 44,
