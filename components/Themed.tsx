@@ -102,6 +102,13 @@ function useTextStyle(
     flat.textAlign = isRTL ? "right" : "left";
   }
 
+  // Arabic text runs right-to-left (punctuation and mixed English words
+  // are placed correctly). Not the "direction" style, which is invalid on
+  // the web.
+  if (flat.writingDirection === undefined) {
+    flat.writingDirection = isRTL ? "rtl" : "ltr";
+  }
+
   // Letter spacing breaks the joined letters of Arabic script.
   if (
     flat.letterSpacing &&
@@ -189,6 +196,25 @@ export function KeyboardAvoidingView({
   ...props
 }: ComponentProps<typeof RNKeyboardAvoidingView>) {
   return <RNKeyboardAvoidingView {...props} style={useViewStyle(style)} />;
+}
+
+// Right-to-left container for content rendered OUTSIDE the main app tree,
+// such as React Native <Modal> windows, which do not inherit the direction
+// set in App.tsx. Arabic → RTL, English → LTR.
+export function DirectionView({
+  style,
+  ...props
+}: ComponentProps<typeof RNView>) {
+  const { isRTL } = useI18n();
+  const direction = directionProps(isRTL ? "rtl" : "ltr");
+
+  return (
+    <RNView
+      {...props}
+      {...(direction.dir ? ({ dir: direction.dir } as object) : {})}
+      style={[{ flex: 1 }, direction.style, style]}
+    />
+  );
 }
 
 // LabelLens toggle switch (replaces React Native's Switch).

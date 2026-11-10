@@ -73,6 +73,13 @@ Developed as a project at **United Arab Emirates University**.
 
 ### Avoid List
 - Save a product with its photos, warnings and halal result.
+- Photos (camera **or** chosen from the device) are copied to a permanent app
+  file straight away (`lib/photoStorage.ts`), then uploaded to the
+  `avoid-products` bucket under `<user id>/` when the item is saved. If a
+  photo cannot be uploaded, nothing is saved and the reason is shown.
+  Open Food Facts images are downloaded first and stored as the item's own
+  copy. Product submissions use the same code with the
+  `product-submissions` bucket.
 - Search, view details, delete.
 - Share selected products as:
   - a **compact PDF** – one table: `# | Photo | Product | Screening summary`
@@ -455,6 +462,8 @@ npx tsc --noEmit                    # type check the whole app
 npx tsx scripts/testScreening.ts    # allergy + halal screening tests
 npx tsx scripts/testI18n.ts         # translation + screening-text tests
 npx tsx scripts/testAllergyValidation.ts  # custom allergy input rules
+npx tsx scripts/checkNoFoodWrites.ts      # app code never writes to food products
+npx expo-doctor                           # Expo project health (needs internet)
 ```
 
 Manual checklist:
@@ -474,7 +483,17 @@ Manual checklist:
 - All UI text lives in `lib/i18n/en.ts` and `lib/i18n/ar.ts`; missing Arabic
   keys fall back to English. The choice is saved on the device.
 - Arabic switches the layout to right-to-left **instantly, without restarting
-  the app** (a root `direction: "rtl"` style instead of `I18nManager`).
+  the app**: `App.tsx` wraps the app in a right-to-left container
+  (`lib/rtl.ts`: `writingDirection` + `dir="rtl"` on the web, the native
+  Yoga layout direction on phones) and passes `direction="rtl"` to the
+  `NavigationContainer`, so the header, title and back button move to the
+  right. Text uses `textAlign: "right"` and `writingDirection: "rtl"`
+  (`components/Themed.tsx`); modals use `DirectionView`; back arrows and
+  chevrons point the Arabic way.
+- On phones, `I18nManager.allowRTL(true)` and `forceRTL(isArabic)` are also
+  set (with `swapLeftAndRightInRTL(false)`), so system parts such as alerts,
+  the keyboard and swipe-back gestures are right-to-left from the next app
+  start. English always stays left-to-right.
 - Screening still runs on the original (English) label text; only the
   display is translated, so translation can never change a result.
 - Barcodes stay left-to-right; shared text uses right-to-left marks so chat

@@ -34,6 +34,7 @@ import {
   useI18n,
   type TFunction,
 } from "../lib/i18n";
+import { downloadPhotoAsDataUrl } from "../lib/photoStorage";
 import { fetchOpenFoodFactsImage } from "../lib/productProviders";
 import { cleanTagText } from "../lib/text";
 import {
@@ -45,6 +46,7 @@ import { supabase } from "../lib/supabase";
 import { confirmAction, showMessage } from "../lib/ui/messages";
 import { fetchCurrentUserPreferences } from "../lib/userPreferences";
 import {
+  DirectionView,
   Ionicons,
   SafeAreaView,
   ScrollView,
@@ -291,47 +293,11 @@ async function loadPdfProfile(): Promise<{
   }
 }
 
-// Downloads one photo and converts it to a base64 data URL.
-// Returns null if the photo cannot be loaded.
+// Downloads one photo to a local file (phones) and converts it to a base64
+// data URL for the PDF (lib/photoStorage.ts). Returns null if the photo
+// cannot be downloaded, so the PDF shows "Image unavailable".
 async function photoToDataUrl(url: string): Promise<string | null> {
-  if (url.startsWith("data:image/")) {
-    return url;
-  }
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const blob = await response.blob();
-
-    const dataUrl = await new Promise<string | null>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () =>
-        resolve(typeof reader.result === "string" ? reader.result : null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-
-    // Only real data URLs are used; anything else shows the placeholder.
-    if (!dataUrl || !dataUrl.startsWith("data:")) {
-      return null;
-    }
-
-    // Some servers send images as "application/octet-stream".
-    return dataUrl.replace(
-      /^data:(application\/octet-stream|binary\/octet-stream)?;/,
-      "data:image/jpeg;"
-    );
-  } catch {
-    return null;
-  }
+  return downloadPhotoAsDataUrl(url, 10000);
 }
 
 // Adds a base64 front photo to every selected product.
@@ -1374,6 +1340,7 @@ export default function AvoidListScreen({
         animationType="slide"
         onRequestClose={() => setSelectedItem(null)}
       >
+        <DirectionView>
         <View style={styles.overlay}>
           <View style={styles.detailsModal}>
             <View style={styles.modalHeader}>
@@ -1487,6 +1454,7 @@ export default function AvoidListScreen({
             ) : null}
           </View>
         </View>
+        </DirectionView>
       </Modal>
 
       {/* ----- Share popup (checkboxes only here) ----- */}
@@ -1496,6 +1464,7 @@ export default function AvoidListScreen({
         animationType="slide"
         onRequestClose={() => setShareVisible(false)}
       >
+        <DirectionView>
         <View style={styles.overlay}>
           <View style={styles.shareModal}>
             <View style={styles.modalHeader}>
@@ -1649,6 +1618,7 @@ export default function AvoidListScreen({
             </TouchableOpacity>
           </View>
         </View>
+        </DirectionView>
       </Modal>
     </SafeAreaView>
   );

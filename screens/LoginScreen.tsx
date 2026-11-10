@@ -225,14 +225,14 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 14,
-    paddingRight: 65,
+    paddingEnd: 65, // room for "Show" (left side in Arabic)
     fontSize: 14,
     color: "#17452F",
   },
 
   showPasswordButton: {
     position: "absolute",
-    right: 14,
+    end: 14,
     top: 0,
     bottom: 0,
     justifyContent: "center",
