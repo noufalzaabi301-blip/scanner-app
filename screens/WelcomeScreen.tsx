@@ -5,7 +5,10 @@ import { STORAGE_KEYS } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import {
   ActivityIndicator,
+  Image,
   StyleSheet,
+  // Plain (un-themed) View: the logo tile stays white in dark mode.
+  View as PlainView,
 } from "react-native";
 import {
   SafeAreaView,
@@ -90,16 +93,16 @@ export default function WelcomeScreen({ navigation }: any) {
         <View style={styles.circleLeft} />
         <View style={styles.circleRight} />
 
-        <View style={styles.logo}>
-          <View style={styles.paper}>
-            <View style={styles.paperLine} />
-            <View style={styles.paperLine} />
-            <View style={styles.paperLineShort} />
-          </View>
-
-          <View style={styles.searchCircle} />
-          <View style={styles.searchHandle} />
-        </View>
+        {/* LabelLens logo (assets/logo-mark.png). The white tile keeps the
+            black outline visible in dark mode too. */}
+        <PlainView style={styles.logo}>
+          <Image
+            source={require("../assets/logo-mark.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
+            accessibilityLabel="LabelLens logo"
+          />
+        </PlainView>
 
         <Text style={styles.title}>LabelLens</Text>
 
@@ -186,62 +189,26 @@ const styles = StyleSheet.create({
   },
 
   logo: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: "#176B43",
+    width: 88,
+    height: 88,
+    borderRadius: 22,
+    // Always white (not themed) so the logo keeps its colours.
+    backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 14,
+    shadowColor: "#000000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
 
-  paper: {
-    width: 19,
-    height: 24,
-    borderWidth: 1.5,
-    borderColor: "#E8F5E9",
-    borderRadius: 2,
-    position: "absolute",
-    left: 17,
-    top: 18,
-    paddingTop: 4,
+  logoImage: {
+    width: 70,
+    height: 70,
   },
 
-  paperLine: {
-    height: 1.5,
-    width: 10,
-    backgroundColor: "#E8F5E9",
-    marginLeft: 3,
-    marginBottom: 3,
-  },
-
-  paperLineShort: {
-    height: 1.5,
-    width: 7,
-    backgroundColor: "#E8F5E9",
-    marginLeft: 3,
-  },
-
-  searchCircle: {
-    width: 14,
-    height: 14,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-    position: "absolute",
-    right: 16,
-    bottom: 17,
-  },
-
-  searchHandle: {
-    width: 8,
-    height: 2,
-    backgroundColor: "#FFFFFF",
-    position: "absolute",
-    right: 12,
-    bottom: 15,
-    transform: [{ rotate: "45deg" }],
-  },
 
   title: {
     fontSize: 29,

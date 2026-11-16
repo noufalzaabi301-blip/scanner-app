@@ -176,9 +176,7 @@ export default function PreferencesScreen({
     }, [loadSavedPreferences])
   );
 
-  function selectAllergyAnswer(
-    value: boolean
-  ) {
+  function selectAllergyAnswer(value: boolean) {
     setHasAllergies(value);
 
     if (!value) {

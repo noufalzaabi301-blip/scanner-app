@@ -75,10 +75,16 @@ export const internalProvider: ProductProvider = {
       barcode: row.barcode,
       productName: text(row.product_name),
       brandName: text(row.brand_name),
-      variant: "",
+      variant: text(row.variant),
       ingredients: text(row.ingredients_text),
-      contains: cleanTagText(row.allergen_text),
-      mayContain: "",
+      // "Contains": allergen_text, or contains_text if the table uses it.
+      contains: cleanTagText(row.allergen_text || row.contains_text),
+      // "May contain" / traces were previously ignored for approved
+      // products, so a "may contain nuts" product gave no warning. Read
+      // whichever column the food table has (all optional).
+      mayContain: cleanTagText(
+        row.may_contain_text || row.may_contain || row.traces_text || row.traces
+      ),
       source: "LabelLens verified product database",
       imageUrl: imageUrl || null,
     });

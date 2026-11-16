@@ -6,7 +6,10 @@
 
 import { useState } from "react";
 import {
+  Image,
   StyleSheet,
+  // Plain (un-themed) View: the logo tile stays white in dark mode.
+  View as PlainView,
 } from "react-native";
 
 import LanguageSwitch from "../components/LanguageSwitch";
@@ -98,6 +101,16 @@ export default function LoginScreen({ navigation }: any) {
       <View style={styles.content}>
         <LanguageSwitch />
 
+        {/* LabelLens logo (assets/logo-mark.png). */}
+        <PlainView style={styles.logo}>
+          <Image
+            source={require("../assets/logo-mark.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
+            accessibilityLabel="LabelLens logo"
+          />
+        </PlainView>
+
         <Text style={styles.title}>{t("login.title")}</Text>
 
         <Text style={styles.subtitle}>{t("login.subtitle")}</Text>
@@ -179,6 +192,23 @@ const styles = StyleSheet.create({
   content: {
     width: "100%",
     maxWidth: 320,
+  },
+
+  logo: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    marginTop: 8,
+    marginBottom: 16,
+  },
+
+  logoImage: {
+    width: 52,
+    height: 52,
   },
 
   title: {

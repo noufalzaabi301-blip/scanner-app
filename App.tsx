@@ -31,7 +31,6 @@ import PrivacyNoticeScreen from "./screens/PrivacyNoticeScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
 import RegisterScreen from "./screens/RegisterScreen";
-import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
 
 import { useIsAdmin } from "./lib/adminAccess";
@@ -54,7 +53,6 @@ export type RootStackParamList = {
     | undefined;
 
   ForgotPassword: undefined;
-  ResetPassword: undefined;
 
   PrivacyNotice:
     | {
@@ -235,12 +233,6 @@ function AppNavigator() {
           <Stack.Screen
             name="ForgotPassword"
             component={ForgotPasswordScreen}
-            options={{ title: t("title.resetPassword") }}
-          />
-
-          <Stack.Screen
-            name="ResetPassword"
-            component={ResetPasswordScreen}
             options={{ title: t("title.resetPassword") }}
           />
 

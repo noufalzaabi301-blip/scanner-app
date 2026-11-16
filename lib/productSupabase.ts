@@ -49,6 +49,13 @@ export type ApprovedProductRow = {
   ingredients_text: string | null;
   allergen_text: string | null;
   verification_status: string;
+  // Optional columns, used when the products table has them.
+  variant?: string | null;
+  contains_text?: string | null;
+  may_contain_text?: string | null;
+  may_contain?: string | null;
+  traces_text?: string | null;
+  traces?: string | null;
   // Optional photo columns: used when the products table has one of them.
   image_url?: string | null;
   image_front_url?: string | null;

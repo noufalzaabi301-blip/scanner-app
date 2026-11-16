@@ -347,22 +347,38 @@ Also required:
 
 ## Password reset (email code)
 
-Forgot Password works with a **code from the email**, so no link has to
-open the app:
+Forgot Password works with a **six-digit code from the email**. There is no
+reset link, so nothing has to open the app and there is no loop back to
+Login. Everything happens on the Forgot Password screen:
 
-1. The user enters their email → Supabase sends a reset email.
-2. The user types the code from the email and a new password → done.
+1. The user enters their email → `supabase.auth.resetPasswordForEmail(email)`.
+   The app **stays** on the Forgot Password screen.
+2. The screen shows **Six-digit code**, **New password** and
+   **Confirm new password**.
+3. The code is checked with
+   `supabase.auth.verifyOtp({ email, token: code, type: "recovery" })`.
+4. Only then the password is saved with
+   `supabase.auth.updateUser({ password: newPassword })`.
+5. Only after that succeeds the app signs out and opens Login.
 
-One-time setup in the **user** Supabase project:
-**Authentication → Emails → Templates → Reset Password**, and make the email
-show the code, for example:
+### Required one-time setup (user Supabase project)
+
+**Authentication → Emails → Templates → Reset Password.** Replace the whole
+message body with:
 
 ```html
 <h2>Reset your LabelLens password</h2>
-<p>Your reset code is:</p>
+<p>Your LabelLens password reset code is:</p>
 <h1>{{ .Token }}</h1>
-<p>Enter this code in the LabelLens app. It expires soon.</p>
+<p>Enter this six-digit code in the LabelLens app.</p>
 ```
+
+The template must **not** contain the reset link variable (the default
+template has it). If the email still shows a link instead of a code, the
+template was not saved.
+
+Optional: **Authentication → Providers → Email → Email OTP length** must be
+**6** (the default) so the code matches the six-digit field.
 
 (Use a custom SMTP server in **Authentication → Emails → SMTP Settings** for
 real users; Supabase's built-in email only sends a few emails per hour.)
