@@ -1426,13 +1426,13 @@ export default function AvoidListScreen({
 
                 <Text style={styles.detailHeading}>{t("avoid.whySaved")}</Text>
 
-                {/* Reason saved: grouped, its own section (not Contains). */}
-                {detailReport.reasonBullets.map((reason, index) => (
-                  <Text key={`${reason}-${index}`} style={styles.reasonLine}>
-                    {"• "}
-                    {reason}
-                  </Text>
-                ))}
+                {/* "Why it was saved": only the matched allergies line
+                    (or "No saved allergy match found."); where each one
+                    was found stays in the shared text / PDF. */}
+                <Text style={styles.reasonLine}>
+                  {"• "}
+                  {detailReport.reasonBullets[0]}
+                </Text>
 
                 <Text style={styles.detailHeading}>{t("avoid.halal")}</Text>
 
