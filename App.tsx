@@ -42,8 +42,9 @@ import { directionProps } from "./lib/rtl";
 import { ThemeProvider, remapColor, useAppTheme } from "./lib/theme";
 
 export type RootStackParamList = {
-  Login: undefined;
   Welcome: undefined;
+  Login: undefined;
+  
 
   // privacyAccepted is set only by PrivacyNotice after explicit acceptance.
   Register:
@@ -85,7 +86,7 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-type StartRoute = "Login" | "Home" | "Preferences" | "PrivacyNotice";
+type StartRoute = "Welcome" |"Login" | "Home" | "Preferences" | "PrivacyNotice";
 
 // Chooses the first screen when the app opens.
 // The Supabase session is kept on the device, so after one login or sign-up
@@ -101,7 +102,7 @@ async function chooseStartRoute(): Promise<StartRoute> {
     const user = session?.user;
 
     if (!user) {
-      return "Login";
+      return "Welcome";
     }
 
     if (!hasAcceptedCurrentPrivacy(user.user_metadata)) {
@@ -115,7 +116,7 @@ async function chooseStartRoute(): Promise<StartRoute> {
       return "Home";
     }
   } catch {
-    return "Login";
+    return "Welcome";
   }
 }
 

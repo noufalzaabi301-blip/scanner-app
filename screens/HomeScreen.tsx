@@ -156,7 +156,7 @@ const LEVEL_COLORS: Record<Level, { main: string; bg: string }> = {
 // How each finding type is explained inside the expanded card.
 const HALAL_CODE_CHECK_URL = "https://halalcodecheck.com/ecodes-database/";
 
-// "Milk, Peanuts; Soybeans" → ["Milk", "Peanuts", "Soybeans"].
+// Text normalization function.
 function splitLabelList(value: string): string[] {
   return value
     .split(/\s*[,;،]\s*/)
@@ -448,7 +448,7 @@ export default function HomeScreen({ navigation }: any) {
         ].filter(Boolean)
       : [];
   const trLabel = useFoodTranslator(resultLabelTexts);
-
+  
   // Product name, brand and variant are also shown in Arabic. Display only:
   // productName / brandName / variant state keeps the original (English)
   // database values for searching, screening, saving and matching.
@@ -465,6 +465,7 @@ export default function HomeScreen({ navigation }: any) {
     "name"
   );
   const display = localizedResult(resultSource, trName, trLabel);
+
 
   // -------------------------------------------------------------------------
   // PREFERENCES (banner)
@@ -1637,13 +1638,22 @@ export default function HomeScreen({ navigation }: any) {
       // Reason = every finding with its source and the exact label text.
       // Stored in English (database content); AvoidList translates it for
       // display.
-      // Explicit reason, stored in English (lib/saveReason.ts), e.g.
-      //   Matched your allergy profile: Water — Ingredients: "water"
-      // It is a separate field and is never added to "Contains".
-      const saveReason = buildSaveReason([
-        ...(screening.allergy.findings ?? []),
-        ...(screening.halal?.findings ?? []),
-      ]);
+      const reasons = [
+        ...new Set(
+          [
+            ...(screening.allergy.findings ?? []),
+            ...(screening.halal?.findings ?? []),
+          ].map(
+            (finding) =>
+              `${finding.headline} — ${finding.sourceLabel}: "${finding.statement}"`
+          )
+        ),
+      ];
+
+      const saveReason =
+        reasons.length > 0
+          ? reasons.join("; ")
+          : screening.allergy.status || "Saved by the user.";
 
       const { error: insertError } = await supabase
         .from("avoid_list")
@@ -2138,16 +2148,11 @@ export default function HomeScreen({ navigation }: any) {
           )}
 
           <Text style={styles.resultTitle}>
-            {display.productName || t("home.productResult")}
+            {productName || t("home.productResult")}
           </Text>
           <Text style={styles.resultBrand}>
-            {display.brandName || t("home.brandUnavailable")}
+            {brandName || t("home.brandUnavailable")}
           </Text>
-          {display.variant ? (
-            <Text style={styles.resultBrand}>
-              {t("home.variantLine", { variant: display.variant })}
-            </Text>
-          ) : null}
           <Text style={styles.sourceText}>
             {t("home.source", { source: localize(product.source) })}
           </Text>
