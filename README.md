@@ -73,23 +73,19 @@ Developed as a project at **United Arab Emirates University**.
 
 ### Avoid List
 - Save a product with its photos, warnings and halal result.
-- Every saved product has a short, grouped **Reason saved** (details,
-  text sharing and PDF, English and Arabic), e.g.
+- Every saved product has a concise **Reason saved** in text sharing and
+  the PDF (English and Arabic):
 
   ```
   Reason saved:
-  • Matched allergies: Milk, Soy beans, Tree nuts
-  • Milk: found in Ingredients, Contains, and Product name
-  • Tree nuts: found in May contain
-  Halal screening:
-  • E322 requires verification
+  Matched allergies: Milk, Soy beans, Tree nuts
   ```
 
   Each allergy appears once (milk powder / whey / lactose / butter → Milk;
   hazelnut / nuts → Tree nuts; soya / soybeans → the user's soy allergy).
-  With no allergy match it says "No saved allergy match found.". Contains
-  and May contain stay separate label fields. The full per-ingredient
-  findings stay in `avoid_list.save_reason` for debugging
+  With no match: "Reason saved: No matched allergies recorded.". Contains,
+  May contain and Halal screening stay separate sections. The full
+  per-ingredient findings stay in `avoid_list.save_reason` for debugging
   (`lib/saveReason.ts`).
 - Photos (camera **or** chosen from the device) are copied to a permanent app
   file straight away (`lib/photoStorage.ts`), then uploaded to the

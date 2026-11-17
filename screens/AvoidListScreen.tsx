@@ -37,6 +37,7 @@ import {
 import { downloadPhotoAsDataUrl } from "../lib/photoStorage";
 import {
   buildReasonReport,
+  reasonSavedLines,
   reasonTextsToTranslate,
 } from "../lib/saveReason";
 import { fetchOpenFoodFactsImage } from "../lib/productProviders";
@@ -244,7 +245,15 @@ function buildShareText(
     // Separate sections (never mixed into Contains / May contain).
     const report = reportFor(item, prefersHalal, t, localize, tr, profileAllergies);
 
-    lines.push("", `${t("reason.heading")}:`, ...report.reasonBullets.map((line) => `• ${line}`));
+    // "Reason saved": one concise line (matched allergies only).
+    const reason = reasonSavedLines(item.save_reason, t, tr, profileAllergies);
+
+    lines.push(
+      "",
+      ...(reason.singleLine
+        ? [`${reason.heading} ${reason.line}`]
+        : [reason.heading, reason.line])
+    );
 
     if (report.halalBullets.length > 0) {
       lines.push(
@@ -391,6 +400,8 @@ function createAvoidListPdfHtml(
 
       // Grouped reason + halal bullets (each allergy once).
       const report = reportFor(item, true, t, localize, tr, allergies);
+      // "Reason saved": one concise line (matched allergies only).
+      const reasonLine = reasonSavedLines(item.save_reason, t, tr, allergies);
       const bullets = (lines: string[]) =>
         `<ul class="bullets">${lines
           .map((line) => `<li><span dir="auto">${escapeHtml(line)}</span></li>`)
@@ -440,9 +451,11 @@ function createAvoidListPdfHtml(
                   ? joinList(labelItems(item.may_contain_text).map(tr))
                   : t("pdf.noneRecorded")
               )}</span></div>
-            <div class="block reason"><div class="lbl">${label(
-              "reason.heading"
-            )}:</div>${bullets(report.reasonBullets)}</div>
+            <div class="block reason"><span class="lbl">${escapeHtml(
+              reasonLine.heading
+            )}</span>${reasonLine.singleLine ? " " : "<br>"}<span dir="auto">${escapeHtml(
+              reasonLine.line
+            )}</span></div>
             <div class="block"><div class="lbl">${label(
               "reason.halalHeading"
             )}:</div>${bullets(report.halalBullets)}</div>

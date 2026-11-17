@@ -441,3 +441,33 @@ export function rawReasonDetails(value: string | null | undefined): string[] {
     .map((segment) => segment.trim())
     .filter(Boolean);
 }
+
+// Concise "Reason saved" for text sharing and the PDF: ONE line, no
+// "found in …" details.
+//   ["Reason saved:", "Matched allergies: Milk, Soy beans, Sesame"]
+//   ["Reason saved: No matched allergies recorded."]
+// Each allergy appears once (equivalent names merged, see
+// summarizeSaveReason). Arabic uses the same format.
+export function reasonSavedLines(
+  value: string | null | undefined,
+  t: TFunction,
+  tr: Tr = identity,
+  profileAllergies: string[] = []
+): { heading: string; line: string; singleLine: boolean } {
+  const summary = summarizeSaveReason(value, profileAllergies);
+  const heading = `${t("reason.heading")}:`;
+
+  if (summary.allergies.length === 0) {
+    return { heading, line: t("reason.noAllergyMatch"), singleLine: true };
+  }
+
+  const names = [
+    ...new Set(summary.allergies.map((item) => displayAllergy(item.name, t, tr))),
+  ];
+
+  return {
+    heading,
+    line: t("reason.matchedAllergies", { list: names.join(t("reason.listComma")) }),
+    singleLine: false,
+  };
+}

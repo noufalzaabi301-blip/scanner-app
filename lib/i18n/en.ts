@@ -662,7 +662,7 @@ const en = {
   "reason.heading": "Reason saved",
   "reason.matchedAllergies": "Matched allergies: {list}",
   "reason.allergyFoundIn": "{name}: found in {sources}",
-  "reason.noAllergyMatch": "No saved allergy match found.",
+  "reason.noAllergyMatch": "No matched allergies recorded.",
   "reason.halalVerifyShort": "{term} requires verification",
   "reason.halalConcernShort": "{term}: halal-related concern",
   "reason.halalHeading": "Halal screening",

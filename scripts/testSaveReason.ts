@@ -16,6 +16,7 @@ import {
   parseSaveReason,
   rawReasonDetails,
   reasonSavedLine,
+  reasonSavedLines,
   summarizeSaveReason,
 } from "../lib/saveReason";
 import { screenProduct } from "../lib/screening";
@@ -216,13 +217,13 @@ test("equivalent names are merged (older rows / mixed names)", () => {
   assert.deepEqual(onlyTerms.allergies.map((item) => item.name), ["Milk", "Tree nuts"]);
 });
 
-test("no allergy match: No saved allergy match found.", () => {
+test("no allergy match: No matched allergies recorded.", () => {
   const stored = 'Halal concern: gelatin — Ingredients: "gelatin"';
   const report = buildReasonReport(stored, tEn as any);
-  assert.deepEqual(report.reasonBullets, ["No saved allergy match found."]);
+  assert.deepEqual(report.reasonBullets, ["No matched allergies recorded."]);
   assert.deepEqual(report.halalBullets, ["gelatin: halal-related concern"]);
   assert.deepEqual(buildReasonReport("Saved by the user.", tEn as any).reasonBullets, [
-    "No saved allergy match found.",
+    "No matched allergies recorded.",
   ]);
 });
 
@@ -235,6 +236,50 @@ test("Arabic uses the same grouping and wording", () => {
   assert.ok(ar.reasonBullets[0].startsWith("الحساسيات المطابقة: الحليب"), ar.reasonBullets[0]);
   assert.ok(ar.reasonBullets.includes("الحليب: وُجد في المكونات، «يحتوي على» واسم المنتج"), ar.reasonBullets.join(" | "));
   assert.deepEqual(ar.halalBullets, ["E322 يتطلب التحقق"]);
+});
+
+// ----- Concise share / PDF line ----------------------------------------------
+
+test("share/PDF: one line with each matched allergy once", () => {
+  setCurrentLanguage("en");
+  const reason = reasonSavedLines(busyStored, tEn as any, undefined, profile);
+  assert.equal(reason.heading, "Reason saved:");
+  assert.equal(reason.singleLine, false);
+  assert.equal(
+    reason.line,
+    "Matched allergies: Milk, Wheat flour, Tree nuts, Soy beans, Sesame"
+  );
+  assert.ok(!/found in/i.test(reason.line));
+});
+
+test("share/PDF: no matches → Reason saved: No matched allergies recorded.", () => {
+  const reason = reasonSavedLines("Saved by the user.", tEn as any);
+  assert.equal(`${reason.heading} ${reason.line}`, "Reason saved: No matched allergies recorded.");
+  assert.equal(reason.singleLine, true);
+});
+
+test("share/PDF: Arabic uses the same concise format", () => {
+  setCurrentLanguage("ar");
+  const reason = reasonSavedLines(busyStored, tAr as any, trAr, profile);
+  const none = reasonSavedLines(null, tAr as any);
+  setCurrentLanguage("en");
+  assert.equal(reason.heading, "سبب الحفظ:");
+  assert.ok(reason.line.startsWith("الحساسيات المطابقة: الحليب"), reason.line);
+  assert.ok(!reason.line.includes("وُجد في"));
+  assert.equal(`${none.heading} ${none.line}`, "سبب الحفظ: لم تُسجَّل أي حساسية مطابقة.");
+});
+
+test("share text and PDF code use only the concise reason", () => {
+  const screen = require("node:fs").readFileSync(
+    require("node:path").join(__dirname, "..", "screens/AvoidListScreen.tsx"),
+    "utf8"
+  ) as string;
+  const share = screen.slice(screen.indexOf("function buildShareText("), screen.indexOf("// PDF DATA"));
+  const pdf = screen.slice(screen.indexOf("function createAvoidListPdfHtml("), screen.indexOf("<!DOCTYPE html>"));
+  for (const part of [share, pdf]) {
+    assert.ok(part.includes("reasonSavedLines("), "uses reasonSavedLines");
+    assert.ok(!/reasonBullets/.test(part), "no per-allergy detail lines");
+  }
 });
 
 console.log(`${passed} passed, ${failed} failed`);

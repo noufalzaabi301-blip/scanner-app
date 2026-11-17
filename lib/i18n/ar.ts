@@ -663,7 +663,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "reason.heading": "سبب الحفظ",
   "reason.matchedAllergies": "الحساسيات المطابقة: {list}",
   "reason.allergyFoundIn": "{name}: وُجد في {sources}",
-  "reason.noAllergyMatch": "لم يتم العثور على تطابق مع الحساسية المحفوظة.",
+  "reason.noAllergyMatch": "لم تُسجَّل أي حساسية مطابقة.",
   "reason.halalVerifyShort": "{term} يتطلب التحقق",
   "reason.halalConcernShort": "{term}: مصدر قلق متعلق بالحلال",
   "reason.halalHeading": "فحص الحلال",
