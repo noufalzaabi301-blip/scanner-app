@@ -7,16 +7,25 @@
 // - Only UI text is translated. Product names, brands, ingredients,
 //   barcodes and other database content are always shown as stored.
 //
-// RTL approach (why no app reload is needed):
-// React Native's I18nManager.forceRTL() only takes effect after a full
-// native restart, and Expo's `supportsRTL`/`forcesRTL` settings require a
-// new native build. Instead, App.tsx wraps the whole navigator in a View
-// set to right-to-left when Arabic is selected (lib/rtl.ts: Yoga
-// `direction` on phones, writingDirection + dir="rtl" on the web). Yoga and
-// react-native-web apply that direction to every child, so rows, text
-// alignment and start/end spacing flip immediately, with no reload, in
-// Expo Go, development builds and on the web. We pin the native I18nManager
-// to LTR so the device language can never cause a second, double flip.
+// RTL approach (two layers, so Arabic is right-to-left everywhere):
+//
+// 1. Immediately, without an app reload: App.tsx wraps the whole navigator
+//    in a right-to-left container (lib/rtl.ts) and passes
+//    direction="rtl" to the NavigationContainer, so screens, rows, text
+//    alignment, start/end spacing, the header and its back button flip as
+//    soon as Arabic is chosen, in Expo Go, development builds and on the
+//    web. Modals use the same container (components/Themed.tsx →
+//    DirectionView).
+//
+// 2. Native (iOS / Android) system parts: I18nManager.allowRTL(true) and
+//    forceRTL(isArabic) are set whenever the language is loaded or changed.
+//    React Native applies forceRTL at the next app start, after which
+//    system alerts, the keyboard, swipe-back gestures and native scroll
+//    views are also right-to-left. swapLeftAndRightInRTL(false) keeps
+//    physical "left"/"right" styles physical, so layout is never flipped
+//    twice. English always sets forceRTL(false).
+//
+// On the web I18nManager does nothing; react-native-web uses dir="rtl".
 // ---------------------------------------------------------------------------
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -29,7 +38,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { I18nManager } from "react-native";
+import { I18nManager, Platform } from "react-native";
 
 import { STORAGE_KEYS } from "../constants";
 import {
@@ -68,12 +77,23 @@ const I18nContext = createContext<I18nContextValue>({
   setLanguage: async () => {},
 });
 
-function pinNativeLayoutToLTR() {
+// Keeps the native RTL setting in line with the chosen language (takes
+// full effect for system UI at the next app start; see the note above).
+function applyNativeDirection(language: Language) {
+  if (Platform.OS === "web") {
+    return;
+  }
+
   try {
-    I18nManager.allowRTL(false);
-    I18nManager.forceRTL(false);
+    const rtl = language === "ar";
+    I18nManager.allowRTL(true);
+    I18nManager.swapLeftAndRightInRTL(false);
+
+    if (I18nManager.isRTL !== rtl) {
+      I18nManager.forceRTL(rtl);
+    }
   } catch {
-    // Not available on every platform (e.g. some web builds).
+    // Not available on every platform.
   }
 }
 
@@ -82,8 +102,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    pinNativeLayoutToLTR();
-
     let active = true;
 
     AsyncStorage.getItem(STORAGE_KEYS.language)
@@ -91,6 +109,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         if (active && (stored === "en" || stored === "ar")) {
           setCurrentLanguage(stored);
           setLanguageState(stored);
+          applyNativeDirection(stored);
+        } else if (active) {
+          applyNativeDirection("en");
         }
       })
       .catch(() => {
@@ -110,6 +131,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setLanguage = useCallback(async (next: Language) => {
     setCurrentLanguage(next);
     setLanguageState(next);
+    applyNativeDirection(next);
 
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.language, next);

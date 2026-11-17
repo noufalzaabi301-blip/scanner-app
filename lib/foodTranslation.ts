@@ -31,6 +31,12 @@ import { supabase } from "./supabase";
 
 type Target = "ar" | "en";
 
+// "label": ingredients, Contains, May contain, allergy names.
+// "name":  product names, brand names and variants. Brand / trademark
+//          words are written in Arabic letters (transliterated); descriptive
+//          words ("Chocolate Biscuits", "Original") are translated.
+export type FoodTextKind = "label" | "name";
+
 const FUNCTION_NAME = "translate-food-text";
 const REMOTE_TIMEOUT_MS = 12000;
 const MAX_CACHE_ENTRIES = 3000;
@@ -38,8 +44,9 @@ const MAX_CACHE_ENTRIES = 3000;
 let cache: Record<string, string> | null = null;
 let remoteUnavailable = false;
 
-function cacheKey(target: Target, text: string): string {
-  return `${target}|${text.trim().toLowerCase()}`;
+function cacheKey(target: Target, text: string, kind: FoodTextKind = "label"): string {
+  const prefix = kind === "name" ? `${target}-name` : target;
+  return `${prefix}|${text.trim().toLowerCase()}`;
 }
 
 async function loadCache(): Promise<Record<string, string>> {
@@ -104,7 +111,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 async function translateRemote(
   texts: string[],
-  target: Target
+  target: Target,
+  kind: FoodTextKind = "label"
 ): Promise<string[] | null> {
   if (remoteUnavailable || texts.length === 0) {
     return null;
@@ -112,7 +120,7 @@ async function translateRemote(
 
   try {
     const { data, error } = await withTimeout(
-      supabase.functions.invoke(FUNCTION_NAME, { body: { texts, target } }),
+      supabase.functions.invoke(FUNCTION_NAME, { body: { texts, target, kind } }),
       REMOTE_TIMEOUT_MS
     );
 
@@ -134,16 +142,19 @@ async function translateRemote(
   }
 }
 
-// Translates many English label texts to Arabic. Returns original → Arabic.
+// Translates many English label texts (or product / brand names) to
+// Arabic. Returns original → Arabic. Only for DISPLAY: callers keep the
+// original English values for searching, screening, saving and matching.
 export async function translateFoodTexts(
-  texts: string[]
+  texts: string[],
+  kind: FoodTextKind = "label"
 ): Promise<Map<string, string>> {
   const store = await loadCache();
   const result = new Map<string, string>();
   const pending: string[] = [];
 
   for (const text of new Set(texts.map((t) => t.trim()).filter(Boolean))) {
-    const cached = store[cacheKey("ar", text)];
+    const cached = store[cacheKey("ar", text, kind)];
 
     if (cached) {
       result.set(text, cached);
@@ -159,19 +170,23 @@ export async function translateFoodTexts(
     result.set(text, local.text);
 
     if (local.complete) {
-      store[cacheKey("ar", text)] = local.text;
+      store[cacheKey("ar", text, kind)] = local.text;
     } else {
       pending.push(text);
     }
   }
 
-  const remote = await translateRemote(pending, "ar");
+  const remote = await translateRemote(pending, "ar", kind);
 
   if (remote) {
     pending.forEach((text, index) => {
       result.set(text, remote[index]);
-      store[cacheKey("ar", text)] = remote[index];
-      rememberArabicTerm(text, remote[index]);
+      store[cacheKey("ar", text, kind)] = remote[index];
+
+      // Names are not ingredient terms; keep them out of the glossary.
+      if (kind === "label") {
+        rememberArabicTerm(text, remote[index]);
+      }
     });
   }
 
@@ -252,7 +267,10 @@ export async function prepareAllergyLabels(allergies: string[]): Promise<void> {
 
 // React hook: returns tr(text) that shows label text in the app language.
 // English → original text. Arabic → glossary at once, AI result when ready.
-export function useFoodTranslator(texts: string[]): (text: string) => string {
+export function useFoodTranslator(
+  texts: string[],
+  kind: FoodTextKind = "label"
+): (text: string) => string {
   const { language } = useI18n();
   const [map, setMap] = useState<Map<string, string>>(new Map());
   const key = texts.join("\u0001");
@@ -267,7 +285,7 @@ export function useFoodTranslator(texts: string[]): (text: string) => string {
     // Show the instant glossary version first.
     setMap(new Map(texts.map((text) => [text.trim(), glossaryTranslate(text).text])));
 
-    translateFoodTexts(texts).then((translated) => {
+    translateFoodTexts(texts, kind).then((translated) => {
       if (active) {
         setMap(translated);
       }
@@ -277,7 +295,7 @@ export function useFoodTranslator(texts: string[]): (text: string) => string {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language, key]);
+  }, [language, key, kind]);
 
   return useMemo(
     () => (text: string) =>

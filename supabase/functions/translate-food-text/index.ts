@@ -47,10 +47,13 @@ Deno.serve(async (req) => {
 
   let texts: string[] = [];
   let target = "ar";
+  let isNames = false;
 
   try {
     const body = await req.json();
     target = body?.target === "en" ? "en" : "ar";
+    // "name" = product names, brand names and variants (display only).
+    isNames = body?.kind === "name";
     texts = (Array.isArray(body?.texts) ? body.texts : [])
       .filter((t: unknown): t is string => typeof t === "string")
       .slice(0, MAX_TEXTS)
@@ -64,14 +67,23 @@ Deno.serve(async (req) => {
   }
 
   const language = target === "ar" ? "Modern Standard Arabic" : "English";
-
   const prompt = [
-    `Translate each food-label item below into ${language}.`,
+    isNames
+      ? `Write each product name, brand name or product variant below in ${language} for display in a food-scanning app.`
+      : `Translate each food-label item below into ${language}.`,
     "Rules:",
     "- Return ONLY a JSON array of strings, same length and order as the input.",
-    "- Keep E-numbers (e.g. E322, E160a), numbers and percentages exactly.",
-    "- Use the standard food/ingredient term a shopper would recognise.",
-    "- When translating to English, return the common ingredient or allergen name (e.g. 'سكر' -> 'sugar').",
+    "- Keep E-numbers (e.g. E322, E160a), numbers, sizes and percentages exactly.",
+    ...(isNames
+      ? [
+          "- Brand names and trademarks: write them in Arabic letters (transliterate the sound), do not translate their meaning (e.g. 'Nestle' -> 'نستله').",
+          "- Descriptive words (e.g. 'Chocolate Biscuits', 'Original', 'Low Fat'): translate them.",
+          "- If a well-known Arabic brand spelling exists, use it.",
+        ]
+      : [
+          "- Use the standard food/ingredient term a shopper would recognise.",
+          "- When translating to English, return the common ingredient or allergen name (e.g. 'سكر' -> 'sugar').",
+        ]),
     "- Do not add explanations.",
     "",
     JSON.stringify(texts),

@@ -1,13 +1,18 @@
 // ---------------------------------------------------------------------------
 // screens/ForgotPasswordScreen.tsx
-// Simple password reset with a code from the email (no links to open):
-//   Step 1  Enter email → Supabase emails a reset code.
-//   Step 2  Enter the code + new password → password is changed → Login.
+// Password reset with a SIX-DIGIT CODE from the email. Everything happens
+// on this one screen; no reset link, URL hash or exchangeCodeForSession:
+//   1. Enter email → supabase.auth.resetPasswordForEmail(email).
+//      The screen STAYS here (it does not go to Login).
+//   2. The six-digit code, new password and confirm-password fields appear.
+//   3. supabase.auth.verifyOtp({ email, token: code, type: "recovery" }).
+//   4. Only if that succeeds: supabase.auth.updateUser({ password }).
+//   5. Only if that succeeds: sign out and go to Login.
 //
-// Why a code instead of a link: reset links must open the app or the right
-// web page, which often fails on phones. A code works everywhere.
-// Requires the Supabase "Reset Password" email template to contain
-// {{ .Token }} (see README → Password reset).
+// Requires the Supabase "Reset Password" email template to show {{ .Token }}
+// and NOT {{ .ConfirmationURL }} (see README → Password reset). If the
+// template still contains the link, users get a link that opens Login
+// instead of a code, which is the "reset loop".
 //
 // For privacy, step 1 never says whether an email is registered.
 // ---------------------------------------------------------------------------
@@ -16,6 +21,7 @@ import { useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
 
 import { useI18n } from "../lib/i18n";
+import PasswordInput from "../components/PasswordInput";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
 import {
@@ -74,7 +80,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
   async function resetPassword() {
     const cleanCode = code.replace(/\s/g, "");
 
-    if (!/^\d{6,10}$/.test(cleanCode)) {
+    if (!/^\d{6}$/.test(cleanCode)) {
       showMessage(t("forgot.codeTitle"), t("forgot.codeInvalid"));
       return;
     }
@@ -92,6 +98,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
     setLoading(true);
 
     try {
+      // 3. Verify the code. This signs the user in for the reset only.
       const { error: verifyError } = await supabase.auth.verifyOtp({
         email,
         token: cleanCode,
@@ -103,14 +110,17 @@ export default function ForgotPasswordScreen({ navigation }: any) {
         return;
       }
 
-      const { error: updateError } = await supabase.auth.updateUser({ password });
+      // 4. Save the new password (only after the code was accepted).
+      const { error: updateError } = await supabase.auth.updateUser({
+        password,
+      });
 
       if (updateError) {
         showMessage(t("reset.failed"), updateError.message);
         return;
       }
 
-      // Sign out so the user logs in with the new password.
+      // 5. Success: sign out, then Login with the new password.
       await supabase.auth.signOut();
       showMessage(t("reset.doneTitle"), t("reset.doneBody"));
       navigation.reset({ index: 0, routes: [{ name: "Login" }] });
@@ -134,6 +144,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
             <>
               <Text style={styles.description}>{t("forgot.description")}</Text>
 
+              <Text style={styles.label}>{t("forgot.emailLabel")}</Text>
               <TextInput
                 style={styles.input}
                 value={email}
@@ -143,6 +154,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
                 autoCorrect={false}
                 placeholderTextColor="#AAB8AE"
                 placeholder="name@example.com"
+                accessibilityLabel={t("forgot.emailLabel")}
               />
 
               <TouchableOpacity
@@ -163,33 +175,33 @@ export default function ForgotPasswordScreen({ navigation }: any) {
                 {t("forgot.codeSent", { email })}
               </Text>
 
+              <Text style={styles.label}>{t("forgot.codeLabel")}</Text>
               <TextInput
                 style={[styles.input, styles.codeInput]}
                 value={code}
-                onChangeText={setCode}
+                onChangeText={(value) => setCode(value.replace(/\D/g, ""))}
                 keyboardType="number-pad"
                 autoComplete="one-time-code"
                 textContentType="oneTimeCode"
-                maxLength={10}
+                maxLength={6}
+                accessibilityLabel={t("forgot.codeLabel")}
                 placeholderTextColor="#AAB8AE"
                 placeholder="123456"
               />
 
-              <TextInput
+              <Text style={styles.label}>{t("reset.newPassword")}</Text>
+              <PasswordInput
                 style={styles.input}
                 value={password}
                 onChangeText={setPassword}
-                secureTextEntry
-                placeholderTextColor="#AAB8AE"
-                placeholder={t("reset.newPassword")}
+                placeholder={t("reset.newPasswordPlaceholder")}
               />
 
-              <TextInput
+              <Text style={styles.label}>{t("reset.confirm")}</Text>
+              <PasswordInput
                 style={styles.input}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
-                secureTextEntry
-                placeholderTextColor="#AAB8AE"
                 placeholder={t("reset.confirmPlaceholder")}
               />
 
@@ -246,6 +258,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     letterSpacing: 6,
     textAlign: "center",
+    // Digits always read left to right, also in Arabic.
+    writingDirection: "ltr",
+  },
+  label: {
+    color: "#17452F",
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 6,
   },
   linkButton: {
     alignItems: "center",

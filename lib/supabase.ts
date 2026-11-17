@@ -29,7 +29,8 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     ...(Platform.OS !== "web" ? { storage: AsyncStorage } : {}),
     autoRefreshToken: true,
     persistSession: true,
-    // Password-reset links are handled manually in ResetPasswordScreen.
+    // No session is read from URLs: password reset uses a six-digit code
+    // (screens/ForgotPasswordScreen.tsx), not a reset link.
     detectSessionInUrl: false,
   },
 });

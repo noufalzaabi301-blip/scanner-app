@@ -31,7 +31,6 @@ import PrivacyNoticeScreen from "./screens/PrivacyNoticeScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
 import RegisterScreen from "./screens/RegisterScreen";
-import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
 
 import { useIsAdmin } from "./lib/adminAccess";
@@ -43,8 +42,9 @@ import { directionProps } from "./lib/rtl";
 import { ThemeProvider, remapColor, useAppTheme } from "./lib/theme";
 
 export type RootStackParamList = {
-  Login: undefined;
   Welcome: undefined;
+  Login: undefined;
+  
 
   // privacyAccepted is set only by PrivacyNotice after explicit acceptance.
   Register:
@@ -54,7 +54,6 @@ export type RootStackParamList = {
     | undefined;
 
   ForgotPassword: undefined;
-  ResetPassword: undefined;
 
   PrivacyNotice:
     | {
@@ -87,7 +86,7 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-type StartRoute = "Login" | "Home" | "Preferences" | "PrivacyNotice";
+type StartRoute = "Welcome" |"Login" | "Home" | "Preferences" | "PrivacyNotice";
 
 // Chooses the first screen when the app opens.
 // The Supabase session is kept on the device, so after one login or sign-up
@@ -103,7 +102,7 @@ async function chooseStartRoute(): Promise<StartRoute> {
     const user = session?.user;
 
     if (!user) {
-      return "Login";
+      return "Welcome";
     }
 
     if (!hasAcceptedCurrentPrivacy(user.user_metadata)) {
@@ -117,7 +116,7 @@ async function chooseStartRoute(): Promise<StartRoute> {
       return "Home";
     }
   } catch {
-    return "Login";
+    return "Welcome";
   }
 }
 
@@ -198,7 +197,11 @@ function AppNavigator() {
     >
       <StatusBar style={isDark ? "light" : "dark"} />
 
-      <NavigationContainer theme={isDark ? DARK_NAV_THEME : LIGHT_NAV_THEME}>
+      <NavigationContainer
+        theme={isDark ? DARK_NAV_THEME : LIGHT_NAV_THEME}
+        // Header, title alignment and back-button side follow the language.
+        direction={isRTL ? "rtl" : "ltr"}
+      >
         <Stack.Navigator
           initialRouteName={startRoute}
           screenOptions={{
@@ -231,12 +234,6 @@ function AppNavigator() {
           <Stack.Screen
             name="ForgotPassword"
             component={ForgotPasswordScreen}
-            options={{ title: t("title.resetPassword") }}
-          />
-
-          <Stack.Screen
-            name="ResetPassword"
-            component={ResetPasswordScreen}
             options={{ title: t("title.resetPassword") }}
           />
 

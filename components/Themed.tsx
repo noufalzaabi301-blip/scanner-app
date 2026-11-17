@@ -25,6 +25,7 @@ import {
 import { SafeAreaView as RNContextSafeAreaView } from "react-native-safe-area-context";
 
 import { useI18n } from "../lib/i18n";
+import { inputColors } from "../lib/inputColors";
 import { directionProps } from "../lib/rtl";
 import { remapColor, useAppTheme } from "../lib/theme";
 
@@ -102,6 +103,13 @@ function useTextStyle(
     flat.textAlign = isRTL ? "right" : "left";
   }
 
+  // Arabic text runs right-to-left (punctuation and mixed English words
+  // are placed correctly). Not the "direction" style, which is invalid on
+  // the web.
+  if (flat.writingDirection === undefined) {
+    flat.writingDirection = isRTL ? "rtl" : "ltr";
+  }
+
   // Letter spacing breaks the joined letters of Arabic script.
   if (
     flat.letterSpacing &&
@@ -120,23 +128,22 @@ export const Text = forwardRef<RNText, ComponentProps<typeof RNText>>(
   }
 );
 
+// Input colours (lib/inputColors.ts). Dark theme: near-white typed text
+// and password dots, muted grey placeholder text.
 export const TextInput = forwardRef<
   RNTextInput,
   ComponentProps<typeof RNTextInput>
 >(function TextInput({ style, placeholderTextColor, ...props }, ref) {
   const { isDark } = useAppTheme();
   const themed = useTextStyle(style);
+  const colors = inputColors(isDark, placeholderTextColor as string | undefined);
 
   return (
     <RNTextInput
       ref={ref}
       {...props}
-      style={themed}
-      placeholderTextColor={
-        isDark
-          ? (remapColor(placeholderTextColor ?? "#8A9A91", "text") as string)
-          : placeholderTextColor
-      }
+      style={colors.text ? [themed, { color: colors.text }] : themed}
+      placeholderTextColor={colors.placeholder}
     />
   );
 });
@@ -189,6 +196,25 @@ export function KeyboardAvoidingView({
   ...props
 }: ComponentProps<typeof RNKeyboardAvoidingView>) {
   return <RNKeyboardAvoidingView {...props} style={useViewStyle(style)} />;
+}
+
+// Right-to-left container for content rendered OUTSIDE the main app tree,
+// such as React Native <Modal> windows, which do not inherit the direction
+// set in App.tsx. Arabic → RTL, English → LTR.
+export function DirectionView({
+  style,
+  ...props
+}: ComponentProps<typeof RNView>) {
+  const { isRTL } = useI18n();
+  const direction = directionProps(isRTL ? "rtl" : "ltr");
+
+  return (
+    <RNView
+      {...props}
+      {...(direction.dir ? ({ dir: direction.dir } as object) : {})}
+      style={[{ flex: 1 }, direction.style, style]}
+    />
+  );
 }
 
 // LabelLens toggle switch (replaces React Native's Switch).

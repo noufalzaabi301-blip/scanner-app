@@ -34,17 +34,21 @@ import {
   useI18n,
   type TFunction,
 } from "../lib/i18n";
+import { downloadPhotoAsDataUrl } from "../lib/photoStorage";
+import {
+  buildReasonReport,
+  reasonSavedLines,
+  reasonTextsToTranslate,
+} from "../lib/saveReason";
 import { fetchOpenFoodFactsImage } from "../lib/productProviders";
 import { cleanTagText } from "../lib/text";
-import {
-  localizeScreeningText,
-  localizeSourceLabel,
-} from "../lib/i18n/screeningText";
+import { localizeScreeningText } from "../lib/i18n/screeningText";
 import { ITEM_SEPARATORS, splitTopLevel } from "../lib/screening";
 import { supabase } from "../lib/supabase";
 import { confirmAction, showMessage } from "../lib/ui/messages";
 import { fetchCurrentUserPreferences } from "../lib/userPreferences";
 import {
+  DirectionView,
   Ionicons,
   SafeAreaView,
   ScrollView,
@@ -65,28 +69,6 @@ const identity: TrLabel = (text) => text;
 // Right-to-left mark: makes chat apps (WhatsApp etc.) show each Arabic line
 // right-to-left even when it starts with English text or a number.
 const RLM = "‏";
-
-// save_reason is stored (in English) as
-//   `${headline} — ${source}: "${statement}"` joined with "; ".
-// It is split into separate lines so each one can be shown clearly.
-type SavedReason = { headline: string; source: string; statement: string };
-
-function parseReasons(value: string | null): SavedReason[] {
-  return String(value ?? "")
-    .split("; ")
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-    .map((segment) => {
-      const match =
-        /^(.+?) — (Ingredients|Contains|May contain|Product name|Brand): "(.*)"$/.exec(
-          segment
-        );
-
-      return match
-        ? { headline: match[1], source: match[2], statement: match[3] }
-        : { headline: segment, source: "", statement: "" };
-    });
-}
 
 // Splits a Contains / May contain value into clean, de-duplicated items.
 // Raw tags such as "en:milk" are cleaned first.
@@ -119,6 +101,8 @@ async function labelTranslatorFor(items: AvoidItem[]): Promise<TrLabel> {
   const texts = items.flatMap((item) => [
     ...labelItems(item.contains_text),
     ...labelItems(item.may_contain_text),
+    // Allergy names / label text named in "Reason saved".
+    ...reasonTextsToTranslate(item.save_reason),
   ]);
 
   try {
@@ -190,12 +174,44 @@ function cleanList(value: string | null, t: TFunction, tr: TrLabel): string {
 // Halal status values that only mean "not checked".
 const HALAL_NOT_SELECTED = /halal screening not selected/i;
 
+// Grouped "Reason saved" and "Halal screening" bullets for one product
+// (lib/saveReason.ts). Each allergy appears once with the places it was
+// found; the raw per-ingredient findings stay in save_reason only.
+// Halal: the halal findings, or the stored halal result when there are
+// none; omitted when halal screening is off and nothing was found.
+function reportFor(
+  item: { save_reason: string | null; halal_status: string | null },
+  showHalalStatus: boolean,
+  t: TFunction,
+  localize: Localize,
+  tr: TrLabel,
+  profileAllergies: string[] = []
+): { reasonBullets: string[]; halalBullets: string[] } {
+  const report = buildReasonReport(item.save_reason, t, tr, profileAllergies);
+
+  if (report.halalBullets.length > 0 || !showHalalStatus) {
+    return report;
+  }
+
+  const halal = cleanLine(item.halal_status);
+
+  return {
+    reasonBullets: report.reasonBullets,
+    halalBullets: [
+      halal && !HALAL_NOT_SELECTED.test(halal)
+        ? localize(halal)
+        : t("avoid.notRecorded"),
+    ],
+  };
+}
+
 function buildShareText(
   selectedItems: AvoidItem[],
   prefersHalal: boolean,
   t: TFunction,
   localize: Localize,
-  tr: TrLabel
+  tr: TrLabel,
+  profileAllergies: string[] = []
 ): string {
   const divider = "━━━━━━━━━━━━━━━━━━━━";
 
@@ -226,16 +242,24 @@ function buildShareText(
       })
     );
 
-    if (prefersHalal) {
-      const halal = cleanLine(item.halal_status);
+    // Separate sections (never mixed into Contains / May contain).
+    const report = reportFor(item, prefersHalal, t, localize, tr, profileAllergies);
 
+    // "Reason saved": one concise line (matched allergies only).
+    const reason = reasonSavedLines(item.save_reason, t, tr, profileAllergies);
+
+    lines.push(
+      "",
+      ...(reason.singleLine
+        ? [`${reason.heading} ${reason.line}`]
+        : [reason.heading, reason.line])
+    );
+
+    if (report.halalBullets.length > 0) {
       lines.push(
-        t("avoid.halalLine", {
-          value:
-            halal && !HALAL_NOT_SELECTED.test(halal)
-              ? localize(halal)
-              : t("avoid.notRecorded"),
-        })
+        "",
+        `${t("reason.halalHeading")}:`,
+        ...report.halalBullets.map((line) => `• ${line}`)
       );
     }
 
@@ -291,47 +315,11 @@ async function loadPdfProfile(): Promise<{
   }
 }
 
-// Downloads one photo and converts it to a base64 data URL.
-// Returns null if the photo cannot be loaded.
+// Downloads one photo to a local file (phones) and converts it to a base64
+// data URL for the PDF (lib/photoStorage.ts). Returns null if the photo
+// cannot be downloaded, so the PDF shows "Image unavailable".
 async function photoToDataUrl(url: string): Promise<string | null> {
-  if (url.startsWith("data:image/")) {
-    return url;
-  }
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const blob = await response.blob();
-
-    const dataUrl = await new Promise<string | null>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () =>
-        resolve(typeof reader.result === "string" ? reader.result : null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-
-    // Only real data URLs are used; anything else shows the placeholder.
-    if (!dataUrl || !dataUrl.startsWith("data:")) {
-      return null;
-    }
-
-    // Some servers send images as "application/octet-stream".
-    return dataUrl.replace(
-      /^data:(application\/octet-stream|binary\/octet-stream)?;/,
-      "data:image/jpeg;"
-    );
-  } catch {
-    return null;
-  }
+  return downloadPhotoAsDataUrl(url, 10000);
 }
 
 // Adds a base64 front photo to every selected product.
@@ -410,11 +398,14 @@ function createAvoidListPdfHtml(
           )}">`
         : `<div class="no-photo">${label("pdf.imageUnavailable")}</div>`;
 
-      const halal = String(item.halal_status ?? "").trim();
-      const halalText =
-        halal && !HALAL_NOT_SELECTED.test(halal)
-          ? escapeHtml(localize(halal))
-          : label("pdf.notRecorded");
+      // Grouped reason + halal bullets (each allergy once).
+      const report = reportFor(item, true, t, localize, tr, allergies);
+      // "Reason saved": one concise line (matched allergies only).
+      const reasonLine = reasonSavedLines(item.save_reason, t, tr, allergies);
+      const bullets = (lines: string[]) =>
+        `<ul class="bullets">${lines
+          .map((line) => `<li><span dir="auto">${escapeHtml(line)}</span></li>`)
+          .join("")}</ul>`;
 
       return `
         <tr>
@@ -460,8 +451,14 @@ function createAvoidListPdfHtml(
                   ? joinList(labelItems(item.may_contain_text).map(tr))
                   : t("pdf.noneRecorded")
               )}</span></div>
-            <div class="line"><span class="lbl">${label("pdf.halal")}</span>
-              ${halalText}</div>
+            <div class="block reason"><span class="lbl">${escapeHtml(
+              reasonLine.heading
+            )}</span>${reasonLine.singleLine ? " " : "<br>"}<span dir="auto">${escapeHtml(
+              reasonLine.line
+            )}</span></div>
+            <div class="block"><div class="lbl">${label(
+              "reason.halalHeading"
+            )}:</div>${bullets(report.halalBullets)}</div>
           </td>
         </tr>
       `;
@@ -592,6 +589,14 @@ function createAvoidListPdfHtml(
     }
 
     .line { color: #1d3829; margin: 2px 0; }
+
+    /* "Reason saved" / "Halal screening": own blocks, separate from
+       Contains and May contain; short bullets keep one product compact. */
+    .block { margin-top: 5px; padding-top: 4px; border-top: 1px dashed #d4ddd7; }
+    .block.reason { color: #8a1c14; }
+    .bullets { margin: 2px 0 0; padding-inline-start: 14px; }
+    .bullets li { margin: 1px 0; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
 
     .lbl { color: #40584a; font-weight: 700; }
 
@@ -741,13 +746,15 @@ export default function AvoidListScreen({
   const detailMayContain = selectedItem
     ? labelItems(selectedItem.may_contain_text)
     : [];
-  const detailReasons = selectedItem ? parseReasons(selectedItem.save_reason) : [];
   const trDetail = useFoodTranslator([
     ...detailIngredients,
     ...detailContains,
     ...detailMayContain,
-    ...detailReasons.flatMap((reason) => (reason.statement ? [reason.statement] : [])),
+    ...(selectedItem ? reasonTextsToTranslate(selectedItem.save_reason) : []),
   ]);
+  const detailReport = selectedItem
+    ? reportFor(selectedItem, true, t, localize, trDetail)
+    : { reasonBullets: [], halalBullets: [] };
 
 
   const loadAvoidList = useCallback(async () => {
@@ -1057,7 +1064,14 @@ export default function AvoidListScreen({
       labelTranslatorFor(selectedItems),
     ]);
 
-    return buildShareText(selectedItems, profile.prefersHalal, t, localize, tr);
+    return buildShareText(
+      selectedItems,
+      profile.prefersHalal,
+      t,
+      localize,
+      tr,
+      profile.allergies
+    );
   }
 
   async function copyAsText(selectedItems: AvoidItem[]) {
@@ -1315,7 +1329,8 @@ export default function AvoidListScreen({
                       style={styles.reasonText}
                       numberOfLines={2}
                     >
-                      {localize(item.save_reason)}
+                      {/* e.g. "Matched allergies: Milk, Soy" (each once) */}
+                      {buildReasonReport(item.save_reason, t).reasonBullets[0]}
                     </Text>
                   </View>
                 ) : null}
@@ -1374,6 +1389,7 @@ export default function AvoidListScreen({
         animationType="slide"
         onRequestClose={() => setSelectedItem(null)}
       >
+        <DirectionView>
         <View style={styles.overlay}>
           <View style={styles.detailsModal}>
             <View style={styles.modalHeader}>
@@ -1423,33 +1439,22 @@ export default function AvoidListScreen({
 
                 <Text style={styles.detailHeading}>{t("avoid.whySaved")}</Text>
 
-                {detailReasons.length === 0 ? (
-                  <Text style={styles.detailText}>
-                    {t("avoid.savedFromAnalysis")}
-                  </Text>
-                ) : (
-                  detailReasons.map((reason, index) => (
-                    <Text
-                      key={`${reason.headline}-${index}`}
-                      style={styles.reasonLine}
-                    >
-                      {"• "}
-                      {localize(reason.headline)}
-                      {reason.source
-                        ? ` — ${localizeSourceLabel(reason.source, t)}: «${trDetail(
-                            reason.statement
-                          )}»`
-                        : ""}
-                    </Text>
-                  ))
-                )}
+                {/* "Why it was saved": only the matched allergies line
+                    (or "No saved allergy match found."); where each one
+                    was found stays in the shared text / PDF. */}
+                <Text style={styles.reasonLine}>
+                  {"• "}
+                  {detailReport.reasonBullets[0]}
+                </Text>
 
                 <Text style={styles.detailHeading}>{t("avoid.halal")}</Text>
 
-                <Text style={styles.halalText}>
-                  {localize(selectedItem.halal_status) ||
-                    t("avoid.halalNotRecorded")}
-                </Text>
+                {detailReport.halalBullets.map((line, index) => (
+                  <Text key={`${line}-${index}`} style={styles.halalText}>
+                    {"• "}
+                    {line}
+                  </Text>
+                ))}
 
                 <Text style={styles.detailHeading}>{t("home.contains")}</Text>
 
@@ -1487,6 +1492,7 @@ export default function AvoidListScreen({
             ) : null}
           </View>
         </View>
+        </DirectionView>
       </Modal>
 
       {/* ----- Share popup (checkboxes only here) ----- */}
@@ -1496,6 +1502,7 @@ export default function AvoidListScreen({
         animationType="slide"
         onRequestClose={() => setShareVisible(false)}
       >
+        <DirectionView>
         <View style={styles.overlay}>
           <View style={styles.shareModal}>
             <View style={styles.modalHeader}>
@@ -1649,6 +1656,7 @@ export default function AvoidListScreen({
             </TouchableOpacity>
           </View>
         </View>
+        </DirectionView>
       </Modal>
     </SafeAreaView>
   );

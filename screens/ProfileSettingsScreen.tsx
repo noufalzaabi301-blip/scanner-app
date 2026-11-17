@@ -16,6 +16,7 @@ import {
 } from "react-native";
 
 import { useI18n } from "../lib/i18n";
+import PasswordInput from "../components/PasswordInput";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
 import {
@@ -271,29 +272,26 @@ export default function ProfileSettingsScreen({ navigation }: any) {
           <Text style={styles.sectionTitle}>{t("settings.changePassword")}</Text>
 
           <Text style={styles.label}>{t("settings.currentPassword")}</Text>
-          <TextInput
+          <PasswordInput
             style={styles.input}
             value={currentPassword}
             onChangeText={setCurrentPassword}
-            secureTextEntry
             placeholder={t("settings.currentPlaceholder")}
           />
 
           <Text style={styles.label}>{t("reset.newPassword")}</Text>
-          <TextInput
+          <PasswordInput
             style={styles.input}
             value={newPassword}
             onChangeText={setNewPassword}
-            secureTextEntry
             placeholder={t("settings.newPlaceholder")}
           />
 
           <Text style={styles.label}>{t("reset.confirm")}</Text>
-          <TextInput
+          <PasswordInput
             style={styles.input}
             value={confirmNewPassword}
             onChangeText={setConfirmNewPassword}
-            secureTextEntry
             placeholder={t("settings.confirmPlaceholder")}
           />
 

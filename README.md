@@ -73,6 +73,27 @@ Developed as a project at **United Arab Emirates University**.
 
 ### Avoid List
 - Save a product with its photos, warnings and halal result.
+- Every saved product has a concise **Reason saved** in text sharing and
+  the PDF (English and Arabic):
+
+  ```
+  Reason saved:
+  Matched allergies: Milk, Soy beans, Tree nuts
+  ```
+
+  Each allergy appears once (milk powder / whey / lactose / butter → Milk;
+  hazelnut / nuts → Tree nuts; soya / soybeans → the user's soy allergy).
+  With no match: "Reason saved: No matched allergies recorded.". Contains,
+  May contain and Halal screening stay separate sections. The full
+  per-ingredient findings stay in `avoid_list.save_reason` for debugging
+  (`lib/saveReason.ts`).
+- Photos (camera **or** chosen from the device) are copied to a permanent app
+  file straight away (`lib/photoStorage.ts`), then uploaded to the
+  `avoid-products` bucket under `<user id>/` when the item is saved. If a
+  photo cannot be uploaded, nothing is saved and the reason is shown.
+  Open Food Facts images are downloaded first and stored as the item's own
+  copy. Product submissions use the same code with the
+  `product-submissions` bucket.
 - Search, view details, delete.
 - Share selected products as:
   - a **compact PDF** – one table: `# | Photo | Product | Screening summary`
@@ -89,8 +110,14 @@ Developed as a project at **United Arab Emirates University**.
   FAQs, Contact Us, About, Privacy Notice, log out.
 
 ### Product submissions and admin review
-- Users can **opt in** (in Preferences / Profile, off by default) to send
-  scanned products for verification.
+- Users can **opt in** (Profile → Halal and product verification, off by
+  default) to send scanned products for verification.
+- Consent lives only in the user database:
+  `user_preferences.submit_products_for_review = true` means permission;
+  a row in `product_submissions` proves a product was actually submitted;
+  `verification_status` is `pending`, `approved` or `rejected`. The setting
+  is read from the database right before anything is uploaded, and the
+  database checks it again (`supabase/sql/user_database_consent_rls.sql`).
 - Admins review submissions in the app; approval copies the product into the
   food database through a secure Edge Function.
 
@@ -320,6 +347,21 @@ their own rows):
 | `product_submissions` | Opt-in submissions with `verification_status` (`pending` → `processing` → `approved` / `rejected`) |
 | `admin_users` | User ids allowed to review submissions (`public.is_admin()`) |
 
+SQL scripts for the **user** project (SQL Editor), in this order:
+
+1. `supabase/sql/user_database_inspect.sql` – read-only: shows the real
+   columns, RLS switches, policies and grants. Check it first.
+2. `supabase/sql/user_database_developer_review.sql` – developer list
+   (`admin_users`) and submission review policies (if not run before).
+3. `supabase/sql/user_database_consent_rls.sql` – own-row access to
+   preferences; submissions only with consent, only as `pending`.
+   Deletes no data. Safe to run again.
+4. `supabase/sql/user_database_delete_account.sql` – service-role grants for
+   the delete-account function.
+5. `supabase/sql/user_database_consent_report.sql` – read-only checks: who
+   enabled sharing, who submitted, pending / approved / rejected, and
+   submissions from users whose sharing is off.
+
 Also required:
 - Storage buckets `avoid-products` and `product-submissions` (private).
 - Auth: email / password sign-in. If email confirmation is on, set the
@@ -340,22 +382,38 @@ Also required:
 
 ## Password reset (email code)
 
-Forgot Password works with a **code from the email**, so no link has to
-open the app:
+Forgot Password works with a **six-digit code from the email**. There is no
+reset link, so nothing has to open the app and there is no loop back to
+Login. Everything happens on the Forgot Password screen:
 
-1. The user enters their email → Supabase sends a reset email.
-2. The user types the code from the email and a new password → done.
+1. The user enters their email → `supabase.auth.resetPasswordForEmail(email)`.
+   The app **stays** on the Forgot Password screen.
+2. The screen shows **Six-digit code**, **New password** and
+   **Confirm new password**.
+3. The code is checked with
+   `supabase.auth.verifyOtp({ email, token: code, type: "recovery" })`.
+4. Only then the password is saved with
+   `supabase.auth.updateUser({ password: newPassword })`.
+5. Only after that succeeds the app signs out and opens Login.
 
-One-time setup in the **user** Supabase project:
-**Authentication → Emails → Templates → Reset Password**, and make the email
-show the code, for example:
+### Required one-time setup (user Supabase project)
+
+**Authentication → Emails → Templates → Reset Password.** Replace the whole
+message body with:
 
 ```html
 <h2>Reset your LabelLens password</h2>
-<p>Your reset code is:</p>
+<p>Your LabelLens password reset code is:</p>
 <h1>{{ .Token }}</h1>
-<p>Enter this code in the LabelLens app. It expires soon.</p>
+<p>Enter this six-digit code in the LabelLens app.</p>
 ```
+
+The template must **not** contain the reset link variable (the default
+template has it). If the email still shows a link instead of a code, the
+template was not saved.
+
+Optional: **Authentication → Providers → Email → Email OTP length** must be
+**6** (the default) so the code matches the six-digit field.
 
 (Use a custom SMTP server in **Authentication → Emails → SMTP Settings** for
 real users; Supabase's built-in email only sends a few emails per hour.)
@@ -455,6 +513,12 @@ npx tsc --noEmit                    # type check the whole app
 npx tsx scripts/testScreening.ts    # allergy + halal screening tests
 npx tsx scripts/testI18n.ts         # translation + screening-text tests
 npx tsx scripts/testAllergyValidation.ts  # custom allergy input rules
+npx tsx scripts/checkNoFoodWrites.ts      # app code never writes to food products
+npx tsx scripts/testArabicResult.ts       # Arabic scan-result display
+npx tsx scripts/testSaveReason.ts         # "Reason saved" (share text / PDF)
+npx tsx scripts/testConsent.ts            # submissions only with consent
+npx tsx scripts/testPasswordFields.ts     # dark-theme password fields
+npx expo-doctor                           # Expo project health (needs internet)
 ```
 
 Manual checklist:
@@ -474,7 +538,17 @@ Manual checklist:
 - All UI text lives in `lib/i18n/en.ts` and `lib/i18n/ar.ts`; missing Arabic
   keys fall back to English. The choice is saved on the device.
 - Arabic switches the layout to right-to-left **instantly, without restarting
-  the app** (a root `direction: "rtl"` style instead of `I18nManager`).
+  the app**: `App.tsx` wraps the app in a right-to-left container
+  (`lib/rtl.ts`: `writingDirection` + `dir="rtl"` on the web, the native
+  Yoga layout direction on phones) and passes `direction="rtl"` to the
+  `NavigationContainer`, so the header, title and back button move to the
+  right. Text uses `textAlign: "right"` and `writingDirection: "rtl"`
+  (`components/Themed.tsx`); modals use `DirectionView`; back arrows and
+  chevrons point the Arabic way.
+- On phones, `I18nManager.allowRTL(true)` and `forceRTL(isArabic)` are also
+  set (with `swapLeftAndRightInRTL(false)`), so system parts such as alerts,
+  the keyboard and swipe-back gestures are right-to-left from the next app
+  start. English always stays left-to-right.
 - Screening still runs on the original (English) label text; only the
   display is translated, so translation can never change a result.
 - Barcodes stay left-to-right; shared text uses right-to-left marks so chat

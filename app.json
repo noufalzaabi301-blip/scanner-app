@@ -7,24 +7,16 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "ios",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.CAMERA"
-      ],
-      "package": "com.blue_8929.LabelLens"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -43,18 +35,11 @@
         "expo-image-picker",
         {
           "cameraPermission": "LabelLens uses the camera to photograph ingredient labels and product packages.",
-          "photosPermission": false,
+          "photosPermission": "LabelLens uses your photos so you can choose a picture of an ingredient label or product package.",
           "microphonePermission": false
         }
       ],
-      "expo-sharing",
-      "expo-font",
-      "expo-status-bar"
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "8d48f4ec-a0f2-402d-9d61-f4c150be1046"
-      }
-    }
+      "expo-sharing"
+    ]
   }
 }

@@ -6,7 +6,10 @@
 
 import { useState } from "react";
 import {
+  Image,
   StyleSheet,
+  // Plain (un-themed) View: the logo tile stays white in dark mode.
+  View as PlainView,
 } from "react-native";
 
 import LanguageSwitch from "../components/LanguageSwitch";
@@ -98,6 +101,16 @@ export default function LoginScreen({ navigation }: any) {
       <View style={styles.content}>
         <LanguageSwitch />
 
+        {/* LabelLens logo (assets/logo-mark.png). */}
+        <PlainView style={styles.logo}>
+          <Image
+            source={require("../assets/logo-mark.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
+            accessibilityLabel="LabelLens logo"
+          />
+        </PlainView>
+
         <Text style={styles.title}>{t("login.title")}</Text>
 
         <Text style={styles.subtitle}>{t("login.subtitle")}</Text>
@@ -122,8 +135,9 @@ export default function LoginScreen({ navigation }: any) {
             style={styles.passwordInput}
             value={password}
             onChangeText={setPassword}
-            placeholder="••••••••"
-            placeholderTextColor="#AAB8AE"
+            // Text placeholder (not fake dots), so an empty field never
+            // looks filled in, also in the dark theme.
+            placeholder={t("login.passwordPlaceholder")}
             secureTextEntry={!showPassword}
             autoCapitalize="none"
             autoCorrect={false}
@@ -181,6 +195,23 @@ const styles = StyleSheet.create({
     maxWidth: 320,
   },
 
+  logo: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    marginTop: 8,
+    marginBottom: 16,
+  },
+
+  logoImage: {
+    width: 52,
+    height: 52,
+  },
+
   title: {
     color: "#17452F",
     fontSize: 24,
@@ -225,14 +256,14 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 14,
-    paddingRight: 65,
+    paddingEnd: 65, // room for "Show" (left side in Arabic)
     fontSize: 14,
     color: "#17452F",
   },
 
   showPasswordButton: {
     position: "absolute",
-    right: 14,
+    end: 14,
     top: 0,
     bottom: 0,
     justifyContent: "center",

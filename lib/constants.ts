@@ -43,7 +43,6 @@ export const ROUTES = {
   Login: "Login",
   Register: "Register",
   ForgotPassword: "ForgotPassword",
-  ResetPassword: "ResetPassword",
   PrivacyNotice: "PrivacyNotice",
   Preferences: "Preferences",
   Home: "Home",
