@@ -727,6 +727,35 @@ function ruleForAllergy(allergy: string): Rule {
   };
 }
 
+// Display-only helper (does not change detection): which allergy group a
+// name belongs to, so a report can show each allergy once. "Milk", "whey",
+// "lactose", "butter" → "milk"; "Hazelnut", "nuts" → "tree nut"; "Soya",
+// "soybeans" → "soy". isAlias = the name is an allergy NAME a user may
+// save (e.g. "Milk", "Soy beans"), not just an ingredient term ("whey").
+export function allergyGroup(name: string): { key: string; isAlias: boolean } {
+  const key = canonicalText(name);
+
+  for (const rule of ALLERGY_RULES) {
+    if (rule.aliases.some((alias) => canonicalText(alias) === key)) {
+      return { key: rule.key, isAlias: true };
+    }
+  }
+
+  for (const rule of ALLERGY_RULES) {
+    const terms = [...rule.directTerms, ...(rule.verifyTerms ?? [])];
+
+    if (terms.some((term) => canonicalText(term) === key)) {
+      return { key: rule.key, isAlias: false };
+    }
+  }
+
+  // Custom allergy: "Strawberries" and "Strawberry" are the same.
+  return {
+    key: `custom:${key.replace(/ies$/, "y").replace(/s$/, "")}`,
+    isAlias: true,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // LABEL SOURCES
 // ---------------------------------------------------------------------------

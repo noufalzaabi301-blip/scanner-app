@@ -36,8 +36,7 @@ import {
 } from "../lib/i18n";
 import { downloadPhotoAsDataUrl } from "../lib/photoStorage";
 import {
-  formatReasonLines,
-  reasonSavedLine,
+  buildReasonReport,
   reasonTextsToTranslate,
 } from "../lib/saveReason";
 import { fetchOpenFoodFactsImage } from "../lib/productProviders";
@@ -174,12 +173,44 @@ function cleanList(value: string | null, t: TFunction, tr: TrLabel): string {
 // Halal status values that only mean "not checked".
 const HALAL_NOT_SELECTED = /halal screening not selected/i;
 
+// Grouped "Reason saved" and "Halal screening" bullets for one product
+// (lib/saveReason.ts). Each allergy appears once with the places it was
+// found; the raw per-ingredient findings stay in save_reason only.
+// Halal: the halal findings, or the stored halal result when there are
+// none; omitted when halal screening is off and nothing was found.
+function reportFor(
+  item: { save_reason: string | null; halal_status: string | null },
+  showHalalStatus: boolean,
+  t: TFunction,
+  localize: Localize,
+  tr: TrLabel,
+  profileAllergies: string[] = []
+): { reasonBullets: string[]; halalBullets: string[] } {
+  const report = buildReasonReport(item.save_reason, t, tr, profileAllergies);
+
+  if (report.halalBullets.length > 0 || !showHalalStatus) {
+    return report;
+  }
+
+  const halal = cleanLine(item.halal_status);
+
+  return {
+    reasonBullets: report.reasonBullets,
+    halalBullets: [
+      halal && !HALAL_NOT_SELECTED.test(halal)
+        ? localize(halal)
+        : t("avoid.notRecorded"),
+    ],
+  };
+}
+
 function buildShareText(
   selectedItems: AvoidItem[],
   prefersHalal: boolean,
   t: TFunction,
   localize: Localize,
-  tr: TrLabel
+  tr: TrLabel,
+  profileAllergies: string[] = []
 ): string {
   const divider = "━━━━━━━━━━━━━━━━━━━━";
 
@@ -210,23 +241,18 @@ function buildShareText(
       })
     );
 
-    if (prefersHalal) {
-      const halal = cleanLine(item.halal_status);
+    // Separate sections (never mixed into Contains / May contain).
+    const report = reportFor(item, prefersHalal, t, localize, tr, profileAllergies);
 
+    lines.push("", `${t("reason.heading")}:`, ...report.reasonBullets.map((line) => `• ${line}`));
+
+    if (report.halalBullets.length > 0) {
       lines.push(
-        t("avoid.halalLine", {
-          value:
-            halal && !HALAL_NOT_SELECTED.test(halal)
-              ? localize(halal)
-              : t("avoid.notRecorded"),
-        })
+        "",
+        `${t("reason.halalHeading")}:`,
+        ...report.halalBullets.map((line) => `• ${line}`)
       );
     }
-
-    // Separate line: why this product is on the Avoid List (never mixed
-    // into Contains). e.g. "Reason saved: Matched your allergy profile:
-    // Water (found in Ingredients: "water")".
-    lines.push(reasonSavedLine(item.save_reason, t, tr, localize));
 
     return lines.join("\n");
   });
@@ -363,11 +389,12 @@ function createAvoidListPdfHtml(
           )}">`
         : `<div class="no-photo">${label("pdf.imageUnavailable")}</div>`;
 
-      const halal = String(item.halal_status ?? "").trim();
-      const halalText =
-        halal && !HALAL_NOT_SELECTED.test(halal)
-          ? escapeHtml(localize(halal))
-          : label("pdf.notRecorded");
+      // Grouped reason + halal bullets (each allergy once).
+      const report = reportFor(item, true, t, localize, tr, allergies);
+      const bullets = (lines: string[]) =>
+        `<ul class="bullets">${lines
+          .map((line) => `<li><span dir="auto">${escapeHtml(line)}</span></li>`)
+          .join("")}</ul>`;
 
       return `
         <tr>
@@ -413,16 +440,12 @@ function createAvoidListPdfHtml(
                   ? joinList(labelItems(item.may_contain_text).map(tr))
                   : t("pdf.noneRecorded")
               )}</span></div>
-            <div class="line"><span class="lbl">${label("pdf.halal")}</span>
-              ${halalText}</div>
-            <div class="line reason"><span class="lbl">${label(
+            <div class="block reason"><div class="lbl">${label(
               "reason.heading"
-            )}:</span>
-              <span dir="auto">${escapeHtml(
-                formatReasonLines(item.save_reason, t, tr, localize).join(
-                  t("reason.separator")
-                )
-              )}</span></div>
+            )}:</div>${bullets(report.reasonBullets)}</div>
+            <div class="block"><div class="lbl">${label(
+              "reason.halalHeading"
+            )}:</div>${bullets(report.halalBullets)}</div>
           </td>
         </tr>
       `;
@@ -554,13 +577,13 @@ function createAvoidListPdfHtml(
 
     .line { color: #1d3829; margin: 2px 0; }
 
-    /* "Reason saved" is its own line, separate from Contains. */
-    .line.reason {
-      margin-top: 5px;
-      padding-top: 4px;
-      border-top: 1px dashed #d4ddd7;
-      color: #8a1c14;
-    }
+    /* "Reason saved" / "Halal screening": own blocks, separate from
+       Contains and May contain; short bullets keep one product compact. */
+    .block { margin-top: 5px; padding-top: 4px; border-top: 1px dashed #d4ddd7; }
+    .block.reason { color: #8a1c14; }
+    .bullets { margin: 2px 0 0; padding-inline-start: 14px; }
+    .bullets li { margin: 1px 0; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
 
     .lbl { color: #40584a; font-weight: 700; }
 
@@ -716,9 +739,9 @@ export default function AvoidListScreen({
     ...detailMayContain,
     ...(selectedItem ? reasonTextsToTranslate(selectedItem.save_reason) : []),
   ]);
-  const detailReasons = selectedItem
-    ? formatReasonLines(selectedItem.save_reason, t, trDetail, localize)
-    : [];
+  const detailReport = selectedItem
+    ? reportFor(selectedItem, true, t, localize, trDetail)
+    : { reasonBullets: [], halalBullets: [] };
 
 
   const loadAvoidList = useCallback(async () => {
@@ -1028,7 +1051,14 @@ export default function AvoidListScreen({
       labelTranslatorFor(selectedItems),
     ]);
 
-    return buildShareText(selectedItems, profile.prefersHalal, t, localize, tr);
+    return buildShareText(
+      selectedItems,
+      profile.prefersHalal,
+      t,
+      localize,
+      tr,
+      profile.allergies
+    );
   }
 
   async function copyAsText(selectedItems: AvoidItem[]) {
@@ -1286,9 +1316,8 @@ export default function AvoidListScreen({
                       style={styles.reasonText}
                       numberOfLines={2}
                     >
-                      {formatReasonLines(item.save_reason, t, undefined, localize, {
-                        withSource: false,
-                      }).join(t("reason.separator"))}
+                      {/* e.g. "Matched allergies: Milk, Soy" (each once) */}
+                      {buildReasonReport(item.save_reason, t).reasonBullets[0]}
                     </Text>
                   </View>
                 ) : null}
@@ -1397,8 +1426,8 @@ export default function AvoidListScreen({
 
                 <Text style={styles.detailHeading}>{t("avoid.whySaved")}</Text>
 
-                {/* Reason saved: its own section, never part of Contains. */}
-                {detailReasons.map((reason, index) => (
+                {/* Reason saved: grouped, its own section (not Contains). */}
+                {detailReport.reasonBullets.map((reason, index) => (
                   <Text key={`${reason}-${index}`} style={styles.reasonLine}>
                     {"• "}
                     {reason}
@@ -1407,10 +1436,12 @@ export default function AvoidListScreen({
 
                 <Text style={styles.detailHeading}>{t("avoid.halal")}</Text>
 
-                <Text style={styles.halalText}>
-                  {localize(selectedItem.halal_status) ||
-                    t("avoid.halalNotRecorded")}
-                </Text>
+                {detailReport.halalBullets.map((line, index) => (
+                  <Text key={`${line}-${index}`} style={styles.halalText}>
+                    {"• "}
+                    {line}
+                  </Text>
+                ))}
 
                 <Text style={styles.detailHeading}>{t("home.contains")}</Text>
 

@@ -660,6 +660,16 @@ const en = {
   "reason.savedByUser": "Saved by you (no allergy or halal match)",
   "reason.separator": "; ",
   "reason.heading": "Reason saved",
+  "reason.matchedAllergies": "Matched allergies: {list}",
+  "reason.allergyFoundIn": "{name}: found in {sources}",
+  "reason.noAllergyMatch": "No saved allergy match found.",
+  "reason.halalVerifyShort": "{term} requires verification",
+  "reason.halalConcernShort": "{term}: halal-related concern",
+  "reason.halalHeading": "Halal screening",
+  "reason.listComma": ", ",
+  "reason.listTwo": "{a} and {b}",
+  "reason.listMany": "{list}, and {last}",
+  "reason.labelField": "{source}",
 } as const;
 
 export type TranslationKey = keyof typeof en;

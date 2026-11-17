@@ -10,10 +10,13 @@ import assert from "node:assert/strict";
 import { glossaryTranslate } from "../lib/i18n/foodGlossary";
 import { setCurrentLanguage, translateIn } from "../lib/i18n/translate";
 import {
+  buildReasonReport,
   buildSaveReason,
   formatReasonLines,
   parseSaveReason,
+  rawReasonDetails,
   reasonSavedLine,
+  summarizeSaveReason,
 } from "../lib/saveReason";
 import { screenProduct } from "../lib/screening";
 
@@ -124,6 +127,114 @@ test("older saved rows are still explained", () => {
   const lines = formatReasonLines(old, tEn as any);
   assert.equal(lines[0], 'Matched your allergy profile: Milk (found in Contains: "Milk")');
   assert.equal(lines[1], 'Matched your allergy profile: Nuts (found in May contain: "Nuts")');
+});
+
+// ----- Grouped report (share text / PDF) ------------------------------------
+
+const busy = {
+  productName: "Milk Chocolate Hazelnut Wafer",
+  brandName: "Demo",
+  ingredients:
+    "Sugar, whole milk powder, wheat flour, cocoa butter, hazelnuts (5%), whey powder, " +
+    "lactose, butter, soya flour, soybean oil, emulsifier (E322), salt, cocoa",
+  contains: "Milk, Soy, Wheat",
+  mayContain: "Nuts, Sesame",
+};
+const profile = ["Milk", "Soy beans", "Wheat flour", "Tree nuts", "Sesame"];
+const busyStored = (() => {
+  const result = screenProduct({ ...busy, allergies: profile, prefersHalal: true });
+  return buildSaveReason([...result.allergy.findings, ...(result.halal?.findings ?? [])]);
+})();
+
+test("raw findings are kept in save_reason (debugging)", () => {
+  assert.ok(rawReasonDetails(busyStored).length > 8, "many raw segments");
+});
+
+test("each matched allergy appears once", () => {
+  const summary = summarizeSaveReason(busyStored);
+  const names = summary.allergies.map((item) => item.name);
+  assert.deepEqual([...names].sort(), [...profile].sort());
+  assert.equal(new Set(names).size, names.length);
+});
+
+test("locations are grouped: Milk in Ingredients, Contains and Product name", () => {
+  setCurrentLanguage("en");
+  const report = buildReasonReport(busyStored, tEn as any);
+  assert.ok(report.reasonBullets[0].startsWith("Matched allergies: Milk"), report.reasonBullets[0]);
+  assert.ok(report.reasonBullets.includes("Milk: found in Ingredients, Contains, and Product name"));
+  assert.ok(report.reasonBullets.includes("Soy beans: found in Ingredients and Contains"));
+  assert.ok(report.reasonBullets.includes("Sesame: found in May contain"));
+  assert.equal(report.reasonBullets.filter((line) => line.startsWith("Milk")).length, 1);
+});
+
+test("short report: one line per allergy plus the summary line", () => {
+  const report = buildReasonReport(busyStored, tEn as any);
+  assert.ok(report.reasonBullets.length <= profile.length + 1);
+  assert.equal(new Set(report.reasonBullets).size, report.reasonBullets.length, "no duplicate lines");
+});
+
+test("ordinary ingredients (sugar, cocoa, salt) are not listed", () => {
+  const text = buildReasonReport(busyStored, tEn as any).reasonBullets.join("\n").toLowerCase();
+  for (const word of ["sugar", "cocoa", "salt", "whey", "lactose", "butter", "hazelnut"]) {
+    assert.ok(!text.includes(word), `"${word}" should not be listed`);
+  }
+});
+
+test("halal: E322 requires verification, once", () => {
+  const report = buildReasonReport(busyStored, tEn as any);
+  assert.deepEqual(report.halalBullets, ["E322 requires verification"]);
+});
+
+test("equivalent names are merged (older rows / mixed names)", () => {
+  const stored = [
+    'Matched your allergy profile: Milk — Ingredients: "milk powder"',
+    'Possible Milk source (whey) — Ingredients: "whey"',
+    'Matched your allergy profile: lactose — Ingredients: "lactose"',
+    'Matched your allergy profile: butter — Contains: "butter"',
+    'Matched your allergy profile: Hazelnut — Ingredients: "hazelnut"',
+    'May contain: nuts — May contain: "nuts"',
+    'Matched your allergy profile: Soya — Ingredients: "soya flour"',
+    'Matched your allergy profile: soybeans — Contains: "soybeans"',
+  ].join("; ");
+  // With the user's profile: the user's names are used for each group.
+  const summary = summarizeSaveReason(stored, ["Milk", "Tree nuts", "Soy beans"]);
+  assert.deepEqual(
+    summary.allergies.map((item) => item.name),
+    ["Milk", "Tree nuts", "Soy beans"],
+    JSON.stringify(summary.allergies)
+  );
+  assert.deepEqual(summary.allergies[0].sources, ["Ingredients", "Contains"]);
+  assert.deepEqual(summary.allergies[1].sources, ["Ingredients", "May contain"]);
+  assert.deepEqual(summary.allergies[2].sources, ["Ingredients", "Contains"]);
+
+  // Ingredient-type names are merged into the user's allergy.
+  const onlyTerms = summarizeSaveReason(
+    'Matched your allergy profile: whey — Ingredients: "whey"; ' +
+      'Matched your allergy profile: hazelnut — May contain: "hazelnut"',
+    ["Milk", "Tree nuts"]
+  );
+  assert.deepEqual(onlyTerms.allergies.map((item) => item.name), ["Milk", "Tree nuts"]);
+});
+
+test("no allergy match: No saved allergy match found.", () => {
+  const stored = 'Halal concern: gelatin — Ingredients: "gelatin"';
+  const report = buildReasonReport(stored, tEn as any);
+  assert.deepEqual(report.reasonBullets, ["No saved allergy match found."]);
+  assert.deepEqual(report.halalBullets, ["gelatin: halal-related concern"]);
+  assert.deepEqual(buildReasonReport("Saved by the user.", tEn as any).reasonBullets, [
+    "No saved allergy match found.",
+  ]);
+});
+
+test("Arabic uses the same grouping and wording", () => {
+  setCurrentLanguage("ar");
+  const ar = buildReasonReport(busyStored, tAr as any, trAr);
+  setCurrentLanguage("en");
+  const en = buildReasonReport(busyStored, tEn as any);
+  assert.equal(ar.reasonBullets.length, en.reasonBullets.length);
+  assert.ok(ar.reasonBullets[0].startsWith("الحساسيات المطابقة: الحليب"), ar.reasonBullets[0]);
+  assert.ok(ar.reasonBullets.includes("الحليب: وُجد في المكونات، «يحتوي على» واسم المنتج"), ar.reasonBullets.join(" | "));
+  assert.deepEqual(ar.halalBullets, ["E322 يتطلب التحقق"]);
 });
 
 console.log(`${passed} passed, ${failed} failed`);
