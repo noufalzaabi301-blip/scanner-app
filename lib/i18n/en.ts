@@ -60,6 +60,8 @@ const en = {
   "login.subtitle": "Sign in to your LabelLens account",
   "login.show": "Show",
   "login.hide": "Hide",
+  "login.passwordPlaceholder": "Enter your password",
+  "reset.newPasswordPlaceholder": "Enter a new password (at least 8 characters)",
   "login.forgot": "Forgot password?",
   "login.signingIn": "Signing in...",
   "login.noAccount": "Don't have an account? ",
@@ -555,6 +557,7 @@ const en = {
   "home.photoUploadFailed": "Nothing was saved because a photo could not be uploaded: {reason} Please try again.",
   "home.submissionPhotoFailedTitle": "Product not sent for verification",
   "home.submissionPhotoFailedBody": "A photo could not be uploaded, so this product was not sent for verification: {reason} It will be tried again the next time you scan it.",
+  "home.variantLine": "Variant: {variant}",
   "avoid.noneRecorded": "None recorded.",
   "avoid.unnamed": "Unnamed product",
   "avoid.notRecorded": "Not recorded",
@@ -648,6 +651,15 @@ const en = {
   "profile.textExtraLarge": "Extra large",
   "profile.textSmaller": "Make text smaller",
   "profile.textBigger": "Make text bigger",
+  "reason.savedLine": "Reason saved: {value}",
+  "reason.allergyMatch": "Matched your allergy profile: {name}",
+  "reason.halalConcern": "Halal concern: {term}",
+  "reason.halalVerify": "Requires halal verification: {term}",
+  "reason.foundIn": "(found in {source})",
+  "reason.foundInWithText": "(found in {source}: \"{text}\")",
+  "reason.savedByUser": "Saved by you (no allergy or halal match)",
+  "reason.separator": "; ",
+  "reason.heading": "Reason saved",
 } as const;
 
 export type TranslationKey = keyof typeof en;

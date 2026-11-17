@@ -1,11 +1,24 @@
 // ---------------------------------------------------------------------------
 // lib/productSubmission.ts
 // Sends a confirmed product for developer verification, but only when the
-// user turned on "Help improve LabelLens by sending scanned products for
-// verification". Never blocks the app and never shows errors to the user.
+// user turned on "Send scanned products for verification".
+//
+// Consent model (user database only; the food database never stores
+// customer consent):
+//   user_preferences.submit_products_for_review = true → permission given
+//   a row in product_submissions                       → actually submitted
+//   product_submissions.verification_status           → pending / approved
+//                                                         / rejected
+// The setting is read from the database right before anything is uploaded
+// (no cached value is trusted), and the database insert policy checks the
+// same setting again (supabase/sql/user_database_consent_rls.sql), so a
+// product can never be submitted while the setting is off.
+// Approved products reach the food database only through the
+// approve-product-submission Edge Function.
 // ---------------------------------------------------------------------------
 
 import { PhotoError, uploadPhotoToBucket } from "./photoStorage";
+import { submissionDecision } from "./submissionConsent";
 import { supabase } from "./supabase";
 import { fetchPreferencesForUser } from "./userPreferences";
 import { asText as text } from "./text";
@@ -25,8 +38,8 @@ export type SubmissionProduct = {
 };
 
 export type SubmissionOptions = {
-  // true when the caller has just read submit_products_for_review = true
-  // from user_preferences. The database insert policy still enforces it.
+  // Kept for compatibility with existing callers. It no longer skips the
+  // database check: consent is always re-read right before submitting.
   preferenceConfirmed?: boolean;
 };
 
@@ -34,12 +47,6 @@ const BUCKET = "product-submissions";
 
 // photoError is set when a photo could not be uploaded.
 export type SubmissionResult = { photoError?: string };
-
-// Products already in the approved LabelLens database are not resubmitted.
-// Matches ONLY the exact source label set in lib/productProviders.ts, so
-// "Open Food Facts — not verified" and photo-extracted products are still
-// submitted.
-const APPROVED_SOURCE = /^LabelLens verified product database$/i;
 
 // Products already submitted (or tried) in this app session, e.g. when the
 // result is re-screened after editing allergies.
@@ -127,12 +134,9 @@ export async function submitProductForReview(
   let succeeded = false;
 
   try {
-    // Nothing useful to verify, or already an approved product.
-    if (!text(product.ingredients) || APPROVED_SOURCE.test(text(product.source))) {
-      return {};
-    }
-
-    if (!text(product.barcode) && !text(product.productName)) {
+    // Nothing useful to verify, or already an approved product (checked
+    // again with the real consent value below).
+    if (submissionDecision(product, true) !== "submit") {
       return {};
     }
 
@@ -154,11 +158,12 @@ export async function submitProductForReview(
 
     inFlight.add(key);
 
-    // Off = nothing is uploaded.
-    if (!options.preferenceConfirmed) {
-      if (!(await isProductSubmissionEnabled(user.id))) {
-        return {};
-      }
+    // Consent is read from user_preferences right now. Off (or no row) =
+    // nothing is uploaded and nothing is inserted.
+    const consent = await isProductSubmissionEnabled(user.id);
+
+    if (submissionDecision(product, consent) !== "submit") {
+      return {};
     }
 
     // Do not upload photos for a product that was already submitted.
@@ -195,7 +200,12 @@ export async function submitProductForReview(
     });
 
     // 23505 = already submitted (unique index). That is fine.
+    // 42501 = the database refused the row (e.g. consent switched off at
+    // the same moment): nothing was submitted, which is correct.
     if (error && (error as any).code !== "23505") {
+      if ((error as any).code === "42501") {
+        return {};
+      }
       throw error;
     }
 

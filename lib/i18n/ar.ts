@@ -61,6 +61,8 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "login.subtitle": "سجّل الدخول إلى حسابك في LabelLens",
   "login.show": "إظهار",
   "login.hide": "إخفاء",
+  "login.passwordPlaceholder": "أدخل كلمة المرور",
+  "reset.newPasswordPlaceholder": "أدخل كلمة مرور جديدة (8 أحرف على الأقل)",
   "login.forgot": "نسيت كلمة المرور؟",
   "login.signingIn": "جارٍ تسجيل الدخول...",
   "login.noAccount": "ليس لديك حساب؟ ",
@@ -556,6 +558,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "home.photoUploadFailed": "لم يتم حفظ أي شيء لأنه تعذّر رفع صورة: {reason} يرجى المحاولة مرة أخرى.",
   "home.submissionPhotoFailedTitle": "لم يتم إرسال المنتج للتحقق",
   "home.submissionPhotoFailedBody": "تعذّر رفع صورة، لذلك لم يتم إرسال هذا المنتج للتحقق: {reason} ستتم المحاولة مرة أخرى عند مسحه في المرة القادمة.",
+  "home.variantLine": "النوع: {variant}",
   "avoid.noneRecorded": "لا يوجد.",
   "avoid.unnamed": "منتج بدون اسم",
   "avoid.notRecorded": "غير مسجّل",
@@ -649,6 +652,15 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "profile.textExtraLarge": "كبير جدًا",
   "profile.textSmaller": "تصغير النص",
   "profile.textBigger": "تكبير النص",
+  "reason.savedLine": "سبب الحفظ: {value}",
+  "reason.allergyMatch": "تطابق مع ملف الحساسية: {name}",
+  "reason.halalConcern": "مخاوف تتعلق بالحلال: {term}",
+  "reason.halalVerify": "يتطلب التحقق من الحلال: {term}",
+  "reason.foundIn": "(وُجد في {source})",
+  "reason.foundInWithText": "(وُجد في {source}: «{text}»)",
+  "reason.savedByUser": "حفظته بنفسك (لا يوجد تطابق مع الحساسية أو الحلال)",
+  "reason.separator": "؛ ",
+  "reason.heading": "سبب الحفظ",
 };
 
 export default ar;

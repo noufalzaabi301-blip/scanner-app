@@ -73,6 +73,12 @@ Developed as a project at **United Arab Emirates University**.
 
 ### Avoid List
 - Save a product with its photos, warnings and halal result.
+- Every saved product has an explicit **Reason saved**, e.g.
+  "Reason saved: Matched your allergy profile: Water (found in Ingredients:
+  "water")" / "سبب الحفظ: تطابق مع ملف الحساسية: ماء". It names where the
+  match came from (product name, brand, ingredients, Contains or May
+  contain) and is shown separately from Contains, May contain and Halal
+  screening in the details, text sharing and PDF (`lib/saveReason.ts`).
 - Photos (camera **or** chosen from the device) are copied to a permanent app
   file straight away (`lib/photoStorage.ts`), then uploaded to the
   `avoid-products` bucket under `<user id>/` when the item is saved. If a
@@ -96,8 +102,14 @@ Developed as a project at **United Arab Emirates University**.
   FAQs, Contact Us, About, Privacy Notice, log out.
 
 ### Product submissions and admin review
-- Users can **opt in** (in Preferences / Profile, off by default) to send
-  scanned products for verification.
+- Users can **opt in** (Profile → Halal and product verification, off by
+  default) to send scanned products for verification.
+- Consent lives only in the user database:
+  `user_preferences.submit_products_for_review = true` means permission;
+  a row in `product_submissions` proves a product was actually submitted;
+  `verification_status` is `pending`, `approved` or `rejected`. The setting
+  is read from the database right before anything is uploaded, and the
+  database checks it again (`supabase/sql/user_database_consent_rls.sql`).
 - Admins review submissions in the app; approval copies the product into the
   food database through a secure Edge Function.
 
@@ -327,6 +339,21 @@ their own rows):
 | `product_submissions` | Opt-in submissions with `verification_status` (`pending` → `processing` → `approved` / `rejected`) |
 | `admin_users` | User ids allowed to review submissions (`public.is_admin()`) |
 
+SQL scripts for the **user** project (SQL Editor), in this order:
+
+1. `supabase/sql/user_database_inspect.sql` – read-only: shows the real
+   columns, RLS switches, policies and grants. Check it first.
+2. `supabase/sql/user_database_developer_review.sql` – developer list
+   (`admin_users`) and submission review policies (if not run before).
+3. `supabase/sql/user_database_consent_rls.sql` – own-row access to
+   preferences; submissions only with consent, only as `pending`.
+   Deletes no data. Safe to run again.
+4. `supabase/sql/user_database_delete_account.sql` – service-role grants for
+   the delete-account function.
+5. `supabase/sql/user_database_consent_report.sql` – read-only checks: who
+   enabled sharing, who submitted, pending / approved / rejected, and
+   submissions from users whose sharing is off.
+
 Also required:
 - Storage buckets `avoid-products` and `product-submissions` (private).
 - Auth: email / password sign-in. If email confirmation is on, set the
@@ -479,6 +506,10 @@ npx tsx scripts/testScreening.ts    # allergy + halal screening tests
 npx tsx scripts/testI18n.ts         # translation + screening-text tests
 npx tsx scripts/testAllergyValidation.ts  # custom allergy input rules
 npx tsx scripts/checkNoFoodWrites.ts      # app code never writes to food products
+npx tsx scripts/testArabicResult.ts       # Arabic scan-result display
+npx tsx scripts/testSaveReason.ts         # "Reason saved" (share text / PDF)
+npx tsx scripts/testConsent.ts            # submissions only with consent
+npx tsx scripts/testPasswordFields.ts     # dark-theme password fields
 npx expo-doctor                           # Expo project health (needs internet)
 ```
 

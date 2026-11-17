@@ -25,6 +25,7 @@ import {
 import { SafeAreaView as RNContextSafeAreaView } from "react-native-safe-area-context";
 
 import { useI18n } from "../lib/i18n";
+import { inputColors } from "../lib/inputColors";
 import { directionProps } from "../lib/rtl";
 import { remapColor, useAppTheme } from "../lib/theme";
 
@@ -127,23 +128,22 @@ export const Text = forwardRef<RNText, ComponentProps<typeof RNText>>(
   }
 );
 
+// Input colours (lib/inputColors.ts). Dark theme: near-white typed text
+// and password dots, muted grey placeholder text.
 export const TextInput = forwardRef<
   RNTextInput,
   ComponentProps<typeof RNTextInput>
 >(function TextInput({ style, placeholderTextColor, ...props }, ref) {
   const { isDark } = useAppTheme();
   const themed = useTextStyle(style);
+  const colors = inputColors(isDark, placeholderTextColor as string | undefined);
 
   return (
     <RNTextInput
       ref={ref}
       {...props}
-      style={themed}
-      placeholderTextColor={
-        isDark
-          ? (remapColor(placeholderTextColor ?? "#8A9A91", "text") as string)
-          : placeholderTextColor
-      }
+      style={colors.text ? [themed, { color: colors.text }] : themed}
+      placeholderTextColor={colors.placeholder}
     />
   );
 });

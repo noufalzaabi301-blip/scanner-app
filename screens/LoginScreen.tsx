@@ -135,8 +135,9 @@ export default function LoginScreen({ navigation }: any) {
             style={styles.passwordInput}
             value={password}
             onChangeText={setPassword}
-            placeholder="••••••••"
-            placeholderTextColor="#AAB8AE"
+            // Text placeholder (not fake dots), so an empty field never
+            // looks filled in, also in the dark theme.
+            placeholder={t("login.passwordPlaceholder")}
             secureTextEntry={!showPassword}
             autoCapitalize="none"
             autoCorrect={false}

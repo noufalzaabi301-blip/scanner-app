@@ -21,6 +21,7 @@ import { useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
 
 import { useI18n } from "../lib/i18n";
+import PasswordInput from "../components/PasswordInput";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
 import {
@@ -189,22 +190,18 @@ export default function ForgotPasswordScreen({ navigation }: any) {
               />
 
               <Text style={styles.label}>{t("reset.newPassword")}</Text>
-              <TextInput
+              <PasswordInput
                 style={styles.input}
                 value={password}
                 onChangeText={setPassword}
-                secureTextEntry
-                placeholderTextColor="#AAB8AE"
-                placeholder={t("reset.newPassword")}
+                placeholder={t("reset.newPasswordPlaceholder")}
               />
 
               <Text style={styles.label}>{t("reset.confirm")}</Text>
-              <TextInput
+              <PasswordInput
                 style={styles.input}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
-                secureTextEntry
-                placeholderTextColor="#AAB8AE"
                 placeholder={t("reset.confirmPlaceholder")}
               />
 

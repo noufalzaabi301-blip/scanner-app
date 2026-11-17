@@ -66,6 +66,8 @@ import {
   uploadPhotoToBucket,
 } from "../lib/photoStorage";
 import { submitProductForReview } from "../lib/productSubmission";
+import { localizedResult, resultTextsToTranslate } from "../lib/resultDisplay";
+import { buildSaveReason } from "../lib/saveReason";
 import {
   ITEM_SEPARATORS,
   applyIngredientCorrections,
@@ -438,9 +440,31 @@ export default function HomeScreen({ navigation }: any) {
           ...splitTopLevel(ingredients, ITEM_SEPARATORS),
           ...containsItems,
           ...mayContainItems,
-        ]
+          // Exact label text behind each warning ("Matched text: …").
+          ...[
+            ...(screening?.allergy?.findings ?? []),
+            ...(screening?.halal?.findings ?? []),
+          ].map((finding) => finding.statement ?? ""),
+        ].filter(Boolean)
       : [];
   const trLabel = useFoodTranslator(resultLabelTexts);
+
+  // Product name, brand and variant are also shown in Arabic. Display only:
+  // productName / brandName / variant state keeps the original (English)
+  // database values for searching, screening, saving and matching.
+  const resultSource = {
+    productName,
+    brandName,
+    variant,
+    ingredients,
+    contains,
+    mayContain,
+  };
+  const trName = useFoodTranslator(
+    stage === "result" ? resultTextsToTranslate(resultSource).names : [],
+    "name"
+  );
+  const display = localizedResult(resultSource, trName, trLabel);
 
   // -------------------------------------------------------------------------
   // PREFERENCES (banner)
@@ -837,7 +861,7 @@ export default function HomeScreen({ navigation }: any) {
                 ) : null}
                 {/* The matched label text is shown exactly as printed. */}
                 <Text style={styles.findingStatement}>
-                  {t("home.matchedText", { text: finding.statement })}
+                  {t("home.matchedText", { text: trLabel(finding.statement) })}
                 </Text>
               </View>
             ))}
@@ -1613,22 +1637,13 @@ export default function HomeScreen({ navigation }: any) {
       // Reason = every finding with its source and the exact label text.
       // Stored in English (database content); AvoidList translates it for
       // display.
-      const reasons = [
-        ...new Set(
-          [
-            ...(screening.allergy.findings ?? []),
-            ...(screening.halal?.findings ?? []),
-          ].map(
-            (finding) =>
-              `${finding.headline} — ${finding.sourceLabel}: "${finding.statement}"`
-          )
-        ),
-      ];
-
-      const saveReason =
-        reasons.length > 0
-          ? reasons.join("; ")
-          : screening.allergy.status || "Saved by the user.";
+      // Explicit reason, stored in English (lib/saveReason.ts), e.g.
+      //   Matched your allergy profile: Water — Ingredients: "water"
+      // It is a separate field and is never added to "Contains".
+      const saveReason = buildSaveReason([
+        ...(screening.allergy.findings ?? []),
+        ...(screening.halal?.findings ?? []),
+      ]);
 
       const { error: insertError } = await supabase
         .from("avoid_list")
@@ -2123,11 +2138,16 @@ export default function HomeScreen({ navigation }: any) {
           )}
 
           <Text style={styles.resultTitle}>
-            {productName || t("home.productResult")}
+            {display.productName || t("home.productResult")}
           </Text>
           <Text style={styles.resultBrand}>
-            {brandName || t("home.brandUnavailable")}
+            {display.brandName || t("home.brandUnavailable")}
           </Text>
+          {display.variant ? (
+            <Text style={styles.resultBrand}>
+              {t("home.variantLine", { variant: display.variant })}
+            </Text>
+          ) : null}
           <Text style={styles.sourceText}>
             {t("home.source", { source: localize(product.source) })}
           </Text>

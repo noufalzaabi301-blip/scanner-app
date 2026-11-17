@@ -35,12 +35,14 @@ import {
   type TFunction,
 } from "../lib/i18n";
 import { downloadPhotoAsDataUrl } from "../lib/photoStorage";
+import {
+  formatReasonLines,
+  reasonSavedLine,
+  reasonTextsToTranslate,
+} from "../lib/saveReason";
 import { fetchOpenFoodFactsImage } from "../lib/productProviders";
 import { cleanTagText } from "../lib/text";
-import {
-  localizeScreeningText,
-  localizeSourceLabel,
-} from "../lib/i18n/screeningText";
+import { localizeScreeningText } from "../lib/i18n/screeningText";
 import { ITEM_SEPARATORS, splitTopLevel } from "../lib/screening";
 import { supabase } from "../lib/supabase";
 import { confirmAction, showMessage } from "../lib/ui/messages";
@@ -67,28 +69,6 @@ const identity: TrLabel = (text) => text;
 // Right-to-left mark: makes chat apps (WhatsApp etc.) show each Arabic line
 // right-to-left even when it starts with English text or a number.
 const RLM = "‏";
-
-// save_reason is stored (in English) as
-//   `${headline} — ${source}: "${statement}"` joined with "; ".
-// It is split into separate lines so each one can be shown clearly.
-type SavedReason = { headline: string; source: string; statement: string };
-
-function parseReasons(value: string | null): SavedReason[] {
-  return String(value ?? "")
-    .split("; ")
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-    .map((segment) => {
-      const match =
-        /^(.+?) — (Ingredients|Contains|May contain|Product name|Brand): "(.*)"$/.exec(
-          segment
-        );
-
-      return match
-        ? { headline: match[1], source: match[2], statement: match[3] }
-        : { headline: segment, source: "", statement: "" };
-    });
-}
 
 // Splits a Contains / May contain value into clean, de-duplicated items.
 // Raw tags such as "en:milk" are cleaned first.
@@ -121,6 +101,8 @@ async function labelTranslatorFor(items: AvoidItem[]): Promise<TrLabel> {
   const texts = items.flatMap((item) => [
     ...labelItems(item.contains_text),
     ...labelItems(item.may_contain_text),
+    // Allergy names / label text named in "Reason saved".
+    ...reasonTextsToTranslate(item.save_reason),
   ]);
 
   try {
@@ -240,6 +222,11 @@ function buildShareText(
         })
       );
     }
+
+    // Separate line: why this product is on the Avoid List (never mixed
+    // into Contains). e.g. "Reason saved: Matched your allergy profile:
+    // Water (found in Ingredients: "water")".
+    lines.push(reasonSavedLine(item.save_reason, t, tr, localize));
 
     return lines.join("\n");
   });
@@ -428,6 +415,14 @@ function createAvoidListPdfHtml(
               )}</span></div>
             <div class="line"><span class="lbl">${label("pdf.halal")}</span>
               ${halalText}</div>
+            <div class="line reason"><span class="lbl">${label(
+              "reason.heading"
+            )}:</span>
+              <span dir="auto">${escapeHtml(
+                formatReasonLines(item.save_reason, t, tr, localize).join(
+                  t("reason.separator")
+                )
+              )}</span></div>
           </td>
         </tr>
       `;
@@ -558,6 +553,14 @@ function createAvoidListPdfHtml(
     }
 
     .line { color: #1d3829; margin: 2px 0; }
+
+    /* "Reason saved" is its own line, separate from Contains. */
+    .line.reason {
+      margin-top: 5px;
+      padding-top: 4px;
+      border-top: 1px dashed #d4ddd7;
+      color: #8a1c14;
+    }
 
     .lbl { color: #40584a; font-weight: 700; }
 
@@ -707,13 +710,15 @@ export default function AvoidListScreen({
   const detailMayContain = selectedItem
     ? labelItems(selectedItem.may_contain_text)
     : [];
-  const detailReasons = selectedItem ? parseReasons(selectedItem.save_reason) : [];
   const trDetail = useFoodTranslator([
     ...detailIngredients,
     ...detailContains,
     ...detailMayContain,
-    ...detailReasons.flatMap((reason) => (reason.statement ? [reason.statement] : [])),
+    ...(selectedItem ? reasonTextsToTranslate(selectedItem.save_reason) : []),
   ]);
+  const detailReasons = selectedItem
+    ? formatReasonLines(selectedItem.save_reason, t, trDetail, localize)
+    : [];
 
 
   const loadAvoidList = useCallback(async () => {
@@ -1281,7 +1286,9 @@ export default function AvoidListScreen({
                       style={styles.reasonText}
                       numberOfLines={2}
                     >
-                      {localize(item.save_reason)}
+                      {formatReasonLines(item.save_reason, t, undefined, localize, {
+                        withSource: false,
+                      }).join(t("reason.separator"))}
                     </Text>
                   </View>
                 ) : null}
@@ -1390,26 +1397,13 @@ export default function AvoidListScreen({
 
                 <Text style={styles.detailHeading}>{t("avoid.whySaved")}</Text>
 
-                {detailReasons.length === 0 ? (
-                  <Text style={styles.detailText}>
-                    {t("avoid.savedFromAnalysis")}
+                {/* Reason saved: its own section, never part of Contains. */}
+                {detailReasons.map((reason, index) => (
+                  <Text key={`${reason}-${index}`} style={styles.reasonLine}>
+                    {"• "}
+                    {reason}
                   </Text>
-                ) : (
-                  detailReasons.map((reason, index) => (
-                    <Text
-                      key={`${reason.headline}-${index}`}
-                      style={styles.reasonLine}
-                    >
-                      {"• "}
-                      {localize(reason.headline)}
-                      {reason.source
-                        ? ` — ${localizeSourceLabel(reason.source, t)}: «${trDetail(
-                            reason.statement
-                          )}»`
-                        : ""}
-                    </Text>
-                  ))
-                )}
+                ))}
 
                 <Text style={styles.detailHeading}>{t("avoid.halal")}</Text>
 
