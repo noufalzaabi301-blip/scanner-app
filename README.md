@@ -309,6 +309,25 @@ credentials are never stored in this repository.
    Deploys). If it says something else, or the page has no such line,
    Netlify is serving an old build or another repository: trigger
    **Deploys → Trigger deploy → Clear cache and deploy site**.
+5. **Supabase (user project) → Authentication → URL Configuration:** set
+   **Site URL** to your Netlify address (e.g. `https://labellens.netlify.app`)
+   and add it under **Redirect URLs**, so sign-up confirmation emails open
+   the website instead of `localhost`.
+
+Without GitHub: run the build on your computer and drag the folder in.
+
+```powershell
+npx.cmd expo export --platform web
+```
+
+(Your `.env` must be in the project folder: the four `EXPO_PUBLIC_...`
+values are built into the website.) Then in Netlify → **Add new site →
+Deploy manually**, drag the `dist` folder. `public/_redirects` is copied
+into `dist` automatically, so refreshing any page works.
+
+The website uses the same Supabase projects and Edge Functions as the
+phone app. Netlify serves it over HTTPS, which the browser needs for the
+camera barcode scanner.
 
 ---
 
