@@ -291,6 +291,21 @@ credentials are never stored in this repository.
 
 ---
 
+## Layout and dark theme (phones and website)
+
+- **One page column for every screen** (`lib/layout.ts`, used in `App.tsx`):
+  width 100%, at most 720 px, centred on tablets and desktops, so Login,
+  Scan, Avoid List, Profile and the developer pages all have the same width.
+  Side padding comes from `usePageInsets()`: 14 px under 360 px, 20 px on
+  phones, 24 px from 768 px. Screens use no fixed page widths or scaling.
+- **Website viewport** (`public/index.html`): device width at scale 1,
+  safe-area aware, no sideways scrolling, and no automatic text enlargement
+  by mobile browsers.
+- **Text fields** (`components/Themed.tsx` → `TextInput`, colours in
+  `lib/inputColors.ts` → `INPUT_TOKENS`): in dark mode every field has a dark
+  inset surface, a visible border, bright typed text, a dim placeholder, a
+  green caret, readable selected text and a green border while typing.
+
 ## Deploying the web version on Netlify
 
 `netlify.toml` is included, so Netlify needs no manual build settings:
@@ -537,6 +552,7 @@ npx tsx scripts/testArabicResult.ts       # Arabic scan-result display
 npx tsx scripts/testSaveReason.ts         # "Reason saved" (share text / PDF)
 npx tsx scripts/testConsent.ts            # submissions only with consent
 npx tsx scripts/testPasswordFields.ts     # dark-theme password fields
+npx tsx scripts/testResponsiveTheme.ts    # dark input colours, responsive web layout
 npx expo-doctor                           # Expo project health (needs internet)
 ```
 

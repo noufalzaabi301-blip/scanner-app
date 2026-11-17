@@ -20,6 +20,7 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
 
+import { usePageInsets } from "../lib/layout";
 import { useI18n } from "../lib/i18n";
 import PasswordInput from "../components/PasswordInput";
 import { supabase } from "../lib/supabase";
@@ -37,6 +38,8 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ForgotPasswordScreen({ navigation }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -134,7 +137,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.page}>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, pageInsets]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.card}>
@@ -278,8 +281,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   card: {
+    // Full width of the shared page column (lib/layout.ts).
     width: "100%",
-    maxWidth: 430,
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 30,

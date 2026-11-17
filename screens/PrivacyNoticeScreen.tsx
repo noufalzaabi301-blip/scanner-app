@@ -19,6 +19,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import { usePageInsets } from "../lib/layout";
 import { PRIVACY_VERSION, STORAGE_KEYS } from "../lib/constants";
 import { useI18n, type TranslationKey } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
@@ -42,6 +43,8 @@ const SECTIONS: { title: TranslationKey; body: TranslationKey }[] = [
 
 export default function PrivacyNoticeScreen({ navigation, route }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
 
   const fromAppStart = route?.params?.fromAppStart === true;
   const fromSignup = route?.params?.fromSignup === true;
@@ -118,7 +121,7 @@ export default function PrivacyNoticeScreen({ navigation, route }: any) {
 
   return (
     <ScrollView
-      contentContainerStyle={styles.page}
+      contentContainerStyle={[styles.page, pageInsets]}
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.card}>
@@ -192,8 +195,8 @@ const styles = StyleSheet.create({
   },
 
   card: {
+    // Full width of the shared page column (lib/layout.ts).
     width: "100%",
-    maxWidth: 560,
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 30,

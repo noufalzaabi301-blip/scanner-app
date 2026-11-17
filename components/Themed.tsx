@@ -8,9 +8,10 @@
 // ---------------------------------------------------------------------------
 
 import { Ionicons as BaseIonicons } from "@expo/vector-icons";
-import { forwardRef, type ComponentProps } from "react";
+import { forwardRef, useEffect, useState, type ComponentProps } from "react";
 import {
   KeyboardAvoidingView as RNKeyboardAvoidingView,
+  Platform,
   SafeAreaView as RNSafeAreaView,
   ScrollView as RNScrollView,
   StyleSheet,
@@ -25,7 +26,7 @@ import {
 import { SafeAreaView as RNContextSafeAreaView } from "react-native-safe-area-context";
 
 import { useI18n } from "../lib/i18n";
-import { inputColors } from "../lib/inputColors";
+import { INPUT_TOKENS, inputColors } from "../lib/inputColors";
 import { directionProps } from "../lib/rtl";
 import { remapColor, useAppTheme } from "../lib/theme";
 
@@ -128,22 +129,159 @@ export const Text = forwardRef<RNText, ComponentProps<typeof RNText>>(
   }
 );
 
-// Input colours (lib/inputColors.ts). Dark theme: near-white typed text
-// and password dots, muted grey placeholder text.
+// ---------------------------------------------------------------------------
+// TextInput: every text field in the app (Login, Register, Forgot password,
+// Profile, Change password, Preferences, scan review, Avoid search,
+// developer edit fields, Contact). Colours come from the theme input tokens
+// (lib/inputColors.ts → INPUT_TOKENS, exported by lib/theme.tsx).
+//
+// Dark theme, bordered fields: dark inset surface, visible neutral border
+// (accent borders such as the amber "check this" border keep their
+// colour), near-white typed text / password dots, dim grey placeholder,
+// green caret, readable selection and a green border while focused.
+// Borderless fields sit inside their own box (e.g. the Avoid List search);
+// that box uses inputShellStyle() below.
+// Light theme: the screens' own colours; only the focus border, caret and
+// selection colours are added. No form logic is changed.
+// ---------------------------------------------------------------------------
+
+function colorSaturation(value: unknown): number {
+  if (typeof value !== "string" || !/^#[0-9a-f]{6}/i.test(value)) {
+    return 0;
+  }
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) {
+    return 0;
+  }
+  const light = (max + min) / 2;
+  return light > 0.5 ? (max - min) / (2 - max - min) : (max - min) / (max + min);
+}
+
+function hasBorder(flat: Record<string, any>): boolean {
+  return [
+    flat.borderWidth,
+    flat.borderTopWidth,
+    flat.borderBottomWidth,
+    flat.borderLeftWidth,
+    flat.borderRightWidth,
+  ].some((width) => typeof width === "number" && width > 0);
+}
+
+// Translucent overlay colours (e.g. the camera's barcode field) are kept.
+function isTranslucent(value: unknown): boolean {
+  return typeof value === "string" && /^rgba\(|transparent/i.test(value);
+}
+
+// Box around a borderless input (search fields with an icon).
+export function inputShellStyle(isDark: boolean, focused: boolean): ViewStyle {
+  const tokens = isDark ? INPUT_TOKENS.dark : INPUT_TOKENS.light;
+  const style: ViewStyle = {};
+
+  if (isDark) {
+    style.backgroundColor = tokens.surface;
+    style.borderColor = tokens.border;
+  }
+
+  if (focused) {
+    style.borderColor = tokens.focusBorder;
+  }
+
+  return style;
+}
+
+// Web: selected-text colours cannot be set inline, so one small stylesheet
+// is kept in sync with the theme.
+function useWebSelectionStyle(isDark: boolean) {
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      return;
+    }
+    const tokens = isDark ? INPUT_TOKENS.dark : INPUT_TOKENS.light;
+    let tag = document.getElementById("labellens-input-selection");
+    if (!tag) {
+      tag = document.createElement("style");
+      tag.id = "labellens-input-selection";
+      document.head.appendChild(tag);
+    }
+    tag.textContent =
+      `input::selection, textarea::selection { background: ${tokens.selection}; color: ${tokens.selectionText}; }` +
+      // The coloured focus border replaces the browser's default outline.
+      " input:focus, textarea:focus { outline: none; }";
+  }, [isDark]);
+}
+
 export const TextInput = forwardRef<
   RNTextInput,
   ComponentProps<typeof RNTextInput>
->(function TextInput({ style, placeholderTextColor, ...props }, ref) {
+>(function TextInput(
+  { style, placeholderTextColor, onFocus, onBlur, editable, ...props },
+  ref
+) {
   const { isDark } = useAppTheme();
-  const themed = useTextStyle(style);
+  const [focused, setFocused] = useState(false);
+  const themed = useTextStyle(style) as Record<string, any>;
+  const original = (StyleSheet.flatten(style) ?? {}) as Record<string, any>;
+  const tokens = isDark ? INPUT_TOKENS.dark : INPUT_TOKENS.light;
   const colors = inputColors(isDark, placeholderTextColor as string | undefined);
+  const disabled = editable === false;
+  const bordered = hasBorder(original);
+
+  useWebSelectionStyle(isDark);
+
+  // Web caret colour (native uses cursorColor / selectionColor below).
+  const overrides: Record<string, any> =
+    Platform.OS === "web" ? { caretColor: tokens.cursor } : {};
+
+  // Web: a browser input has a built-in minimum width (about 20
+  // characters), so a field sharing a row with a button (e.g. "Add an
+  // allergy" + Add) pushed the button off narrow screens. Let flexible
+  // fields shrink.
+  if (Platform.OS === "web" && original.flex && original.minWidth === undefined) {
+    overrides.minWidth = 0;
+  }
+
+  if (isDark) {
+    overrides.color = disabled ? tokens.disabledText : tokens.text;
+
+    if (bordered) {
+      if (!isTranslucent(original.backgroundColor)) {
+        overrides.backgroundColor = disabled ? tokens.disabledSurface : tokens.surface;
+      }
+
+      // Neutral borders get the visible token; accent borders keep hue.
+      if (!isTranslucent(original.borderColor) && colorSaturation(original.borderColor) < 0.45) {
+        overrides.borderColor = tokens.border;
+      }
+    } else {
+      overrides.backgroundColor = "transparent";
+    }
+  } else if (colors.text) {
+    overrides.color = colors.text;
+  }
+
+  if (focused && bordered && !disabled && !isTranslucent(original.borderColor)) {
+    overrides.borderColor = tokens.focusBorder;
+  }
 
   return (
     <RNTextInput
       ref={ref}
       {...props}
-      style={colors.text ? [themed, { color: colors.text }] : themed}
+      editable={editable}
+      style={[themed, overrides]}
       placeholderTextColor={colors.placeholder}
+      selectionColor={tokens.selection}
+      cursorColor={tokens.cursor}
+      onFocus={(event) => {
+        setFocused(true);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        setFocused(false);
+        onBlur?.(event);
+      }}
     />
   );
 });

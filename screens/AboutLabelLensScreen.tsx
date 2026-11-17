@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import { usePageInsets } from "../lib/layout";
 import { APP_VERSION } from "../lib/constants";
 import { useI18n, type TranslationKey } from "../lib/i18n";
 import {
@@ -25,11 +26,13 @@ const STEPS: { title: TranslationKey; body: TranslationKey }[] = [
 
 export default function AboutLabelLensScreen() {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
 
   return (
     <SafeAreaView style={styles.page}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, pageInsets]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.logoBox}>

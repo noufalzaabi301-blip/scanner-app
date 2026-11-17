@@ -19,6 +19,7 @@ import {
 } from "react-native";
 
 import LanguageSwitch from "../components/LanguageSwitch";
+import { usePageInsets } from "../lib/layout";
 import { PRIVACY_VERSION } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
@@ -36,6 +37,8 @@ export default function RegisterScreen({
   route,
 }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -173,7 +176,7 @@ export default function RegisterScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={styles.page}
+      contentContainerStyle={[styles.page, pageInsets]}
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.content}>
@@ -319,8 +322,8 @@ const styles = StyleSheet.create({
   },
 
   content: {
+    // Full width of the shared page column (lib/layout.ts).
     width: "100%",
-    maxWidth: 320,
   },
 
   title: {

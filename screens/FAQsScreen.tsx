@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import { usePageInsets } from "../lib/layout";
 import { useI18n, type TranslationKey } from "../lib/i18n";
 import {
   SafeAreaView,
@@ -29,6 +30,8 @@ const FAQS: { question: TranslationKey; answer: TranslationKey }[] = [
 
 export default function FAQsScreen({ navigation }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const [openQuestion, setOpenQuestion] = useState<number | null>(null);
 
   function toggleQuestion(index: number) {
@@ -38,7 +41,7 @@ export default function FAQsScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.page}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, pageInsets]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.iconBox}>

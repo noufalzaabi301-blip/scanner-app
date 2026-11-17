@@ -29,6 +29,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import { usePageInsets } from "../lib/layout";
 import {
   approveSubmissionForScanner,
   callReviewFunction,
@@ -116,6 +117,8 @@ async function photoUrl(value: string | null): Promise<string | null> {
 
 export default function AdminProductSubmissionsScreen({ navigation }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [drafts, setDrafts] = useState<Record<string, SubmissionDraft>>({});
@@ -313,7 +316,7 @@ export default function AdminProductSubmissionsScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.page} edges={["left", "right", "bottom"]}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, pageInsets]}>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Text style={styles.title}>{t("admin.title")}</Text>

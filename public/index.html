@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <!--
+      LabelLens website viewport:
+      - width=device-width, initial-scale=1: real device width, no zoom.
+      - viewport-fit=cover: content can use the full screen; the app keeps
+        its safe-area padding (notch / home bar) via react-native-safe-area-context.
+      - Users can still pinch-zoom (no zoom limit is set), for accessibility.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#176B43" />
+    <title>%WEB_TITLE%</title>
+    <style id="expo-reset">
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        /* Never scroll sideways; pages scroll vertically inside the app. */
+        overflow-x: hidden;
+        /* Stops mobile browsers (iOS Safari, Android Chrome) from enlarging
+           text on some pages and not others, which made pages look zoomed. */
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+      }
+      body {
+        overflow: hidden;
+        background-color: #F7F9F7;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #252C28;
+        }
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <div id="root"></div>
+  </body>
+</html>

@@ -158,8 +158,8 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   card: {
+    // Full width of the shared page column (lib/layout.ts).
     width: "100%",
-    maxWidth: 430,
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 30,

@@ -22,6 +22,7 @@ import {
 } from "react-native";
 
 import BottomNavigation from "../components/BottomNavigation";
+import { usePageInsets } from "../lib/layout";
 import { allergyLabelList, joinList } from "../lib/constants";
 import {
   prepareAllergyLabels,
@@ -42,12 +43,14 @@ import {
 } from "../lib/saveReason";
 import { fetchOpenFoodFactsImage } from "../lib/productProviders";
 import { cleanTagText } from "../lib/text";
+import { useAppTheme } from "../lib/theme";
 import { localizeScreeningText } from "../lib/i18n/screeningText";
 import { ITEM_SEPARATORS, splitTopLevel } from "../lib/screening";
 import { supabase } from "../lib/supabase";
 import { confirmAction, showMessage } from "../lib/ui/messages";
 import { fetchCurrentUserPreferences } from "../lib/userPreferences";
 import {
+  inputShellStyle,
   DirectionView,
   Ionicons,
   SafeAreaView,
@@ -719,6 +722,8 @@ export default function AvoidListScreen({
   navigation,
 }: any) {
   const { t, language, isRTL } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const localize: Localize = (text) =>
     localizeScreeningText(text, t, language);
 
@@ -727,6 +732,8 @@ export default function AvoidListScreen({
   const [errorMessage, setErrorMessage] =
     useState("");
   const [searchText, setSearchText] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const { isDark } = useAppTheme();
   const [selectedItem, setSelectedItem] =
     useState<AvoidItem | null>(null);
   const [shareVisible, setShareVisible] =
@@ -1184,7 +1191,7 @@ export default function AvoidListScreen({
   return (
     <SafeAreaView style={styles.page}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, pageInsets]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerRow}>
@@ -1208,7 +1215,8 @@ export default function AvoidListScreen({
           </TouchableOpacity>
         </View>
 
-        <View style={styles.searchBox}>
+        {/* Search box: visible field surface / focus border in dark mode. */}
+        <View style={[styles.searchBox, inputShellStyle(isDark, searchFocused)]}>
           <Ionicons
             name="search-outline"
             size={20}
@@ -1221,6 +1229,8 @@ export default function AvoidListScreen({
             onChangeText={setSearchText}
             placeholder={t("avoid.searchPlaceholder")}
             placeholderTextColor="#8A9A91"
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
           />
         </View>
 

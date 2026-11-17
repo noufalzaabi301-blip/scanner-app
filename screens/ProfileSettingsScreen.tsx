@@ -15,6 +15,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import { usePageInsets } from "../lib/layout";
 import { useI18n } from "../lib/i18n";
 import PasswordInput from "../components/PasswordInput";
 import { supabase } from "../lib/supabase";
@@ -32,6 +33,8 @@ type Status = { kind: "success" | "error"; text: string } | null;
 
 export default function ProfileSettingsScreen({ navigation }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
 
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -217,7 +220,7 @@ export default function ProfileSettingsScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.page}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, pageInsets]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.card}>
@@ -246,7 +249,7 @@ export default function ProfileSettingsScreen({ navigation }: any) {
 
           <Text style={styles.label}>{t("settings.email")}</Text>
           <TextInput
-            style={[styles.input, styles.disabledInput]}
+            style={[styles.input, styles.disabledInput, styles.inputWithHint]}
             value={email}
             editable={false}
           />
@@ -329,7 +332,6 @@ const styles = StyleSheet.create({
     color: "#68766F",
     fontSize: 12,
     lineHeight: 17,
-    marginTop: -10,
     marginBottom: 18,
   },
 
@@ -357,8 +359,8 @@ const styles = StyleSheet.create({
   },
 
   card: {
+    // Full width of the shared page column (lib/layout.ts).
     width: "100%",
-    maxWidth: 560,
     alignSelf: "center",
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
@@ -393,6 +395,11 @@ const styles = StyleSheet.create({
     padding: 14,
     fontSize: 16,
     marginBottom: 18,
+  },
+
+  // The hint sits right under its field (no negative margin needed).
+  inputWithHint: {
+    marginBottom: 8,
   },
 
   disabledInput: {

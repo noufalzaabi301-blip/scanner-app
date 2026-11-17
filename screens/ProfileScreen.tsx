@@ -29,6 +29,7 @@ import SettingsRow, {
   SettingsGroup,
   SettingsSectionTitle,
 } from "../components/SettingsRow";
+import { usePageInsets } from "../lib/layout";
 import { deleteMyAccount } from "../lib/account";
 import { useIsAdmin } from "../lib/adminAccess";
 import {
@@ -91,6 +92,8 @@ function initialsFor(account: Account): string {
 
 export default function ProfileScreen({ navigation }: any) {
   const { t, language, setLanguage } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const { mode, setMode, fontScale, setFontScale } = useAppTheme();
   const { isAdmin } = useIsAdmin();
 
@@ -267,7 +270,7 @@ export default function ProfileScreen({ navigation }: any) {
     <SafeAreaView style={styles.page}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, pageInsets]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.title}>{t("profile.heading")}</Text>

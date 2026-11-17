@@ -38,6 +38,7 @@ import { COLORS, hasAcceptedCurrentPrivacy } from "./lib/constants";
 import { supabase } from "./lib/supabase";
 import { hasSavedPreferences } from "./lib/userPreferences";
 import { I18nProvider, useI18n } from "./lib/i18n";
+import { pageColumnStyle } from "./lib/layout";
 import { directionProps } from "./lib/rtl";
 import { ThemeProvider, remapColor, useAppTheme } from "./lib/theme";
 
@@ -193,9 +194,22 @@ function AppNavigator() {
     // lib/rtl.ts for the web / phone difference).
     <View
       {...(rootDirection.dir ? ({ dir: rootDirection.dir } as object) : {})}
-      style={[styles.root, rootDirection.style]}
+      style={[
+        styles.root,
+        rootDirection.style,
+        // Page colour outside the centred column on wide screens.
+        {
+          backgroundColor: isDark
+            ? DARK_NAV_THEME.colors.background
+            : COLORS.page,
+        },
+      ]}
     >
       <StatusBar style={isDark ? "light" : "dark"} />
+
+      {/* One responsive column for every page (lib/layout.ts): full width
+          on phones, centred with a max width on tablets and desktops. */}
+      <View style={pageColumnStyle}>
 
       <NavigationContainer
         theme={isDark ? DARK_NAV_THEME : LIGHT_NAV_THEME}
@@ -334,6 +348,7 @@ function AppNavigator() {
           ) : null}
         </Stack.Navigator>
       </NavigationContainer>
+      </View>
     </View>
   );
 }

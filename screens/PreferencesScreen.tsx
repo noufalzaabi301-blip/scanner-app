@@ -18,6 +18,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import { usePageInsets } from "../lib/layout";
 import {
   MAX_ALLERGY_LENGTH,
   validateCustomAllergy,
@@ -63,6 +64,8 @@ export default function PreferencesScreen({
   route,
 }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
 
   const isEditMode =
     route?.params?.mode === "edit";
@@ -324,7 +327,7 @@ export default function PreferencesScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={styles.page}
+      contentContainerStyle={[styles.page, pageInsets]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
@@ -597,8 +600,8 @@ const styles = StyleSheet.create({
   },
 
   content: {
+    // Full width of the shared page column (lib/layout.ts).
     width: "100%",
-    maxWidth: 420,
   },
 
   title: {
@@ -749,6 +752,7 @@ const styles = StyleSheet.create({
   },
 
   addButton: {
+    flexShrink: 0, // always fully visible next to the field
     minHeight: 46,
     paddingHorizontal: 16,
     borderRadius: 10,

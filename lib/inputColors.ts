@@ -12,6 +12,46 @@ export const DARK_INPUT_TEXT = "#F1F6F3";
 export const DARK_PLACEHOLDER = "#7C8A83";
 export const LIGHT_PLACEHOLDER = "#8A9A91";
 
+// Input tokens of the theme system (re-exported by lib/theme.tsx and used
+// by components/Themed.tsx → TextInput for EVERY text field).
+// light: undefined = keep the screen's own colour (light theme unchanged).
+export type InputTokens = {
+  surface?: string; // field background
+  disabledSurface?: string; // read-only field background
+  border?: string; // neutral border
+  focusBorder: string; // border while typing
+  text?: string; // typed text and password dots
+  disabledText?: string;
+  placeholder: string; // dim hint text
+  cursor: string; // caret
+  selection: string; // selected-text highlight
+  selectionText: string; // selected text colour
+};
+
+export const INPUT_TOKENS: { light: InputTokens; dark: InputTokens } = {
+  light: {
+    focusBorder: "#176B43",
+    placeholder: LIGHT_PLACEHOLDER,
+    cursor: "#176B43",
+    selection: "rgba(23, 107, 67, 0.22)",
+    selectionText: "#0E2A1C",
+  },
+  dark: {
+    // A dark inset surface, visibly different from the dark cards
+    // (#262D29) and page (#1A221D), with a clearly visible border.
+    surface: "#141C18",
+    disabledSurface: "#1E2622",
+    border: "#5A6B61",
+    focusBorder: "#5CC08A",
+    text: DARK_INPUT_TEXT,
+    disabledText: "#A3B0A8",
+    placeholder: DARK_PLACEHOLDER,
+    cursor: "#7FD6A5",
+    selection: "rgba(92, 192, 138, 0.45)",
+    selectionText: "#FFFFFF",
+  },
+};
+
 export function inputColors(
   isDark: boolean,
   placeholderTextColor?: string

@@ -14,6 +14,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import { usePageInsets } from "../lib/layout";
 import { CONTACT_EMAIL } from "../lib/constants";
 import { useI18n, type TranslationKey } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
@@ -39,6 +40,8 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ContactUsScreen() {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [subject, setSubject] = useState<TranslationKey | "">("");
@@ -98,7 +101,7 @@ export default function ContactUsScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[styles.container, pageInsets]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >

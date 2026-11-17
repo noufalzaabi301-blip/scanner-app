@@ -31,6 +31,7 @@ import {
 import { type Edge } from "react-native-safe-area-context";
 
 import BottomNavigation from "../components/BottomNavigation";
+import { usePageInsets } from "../lib/layout";
 import { allergyLabelList, joinList } from "../lib/constants";
 import {
   allergiesForScreening,
@@ -361,6 +362,8 @@ async function fetchUserPreferences(): Promise<{
 
 export default function HomeScreen({ navigation }: any) {
   const { t, language, isRTL } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const [stage, setStage] = useState<Stage>("home");
 
   // Screening sentences come from the engine in English; show them in the
@@ -1708,7 +1711,7 @@ export default function HomeScreen({ navigation }: any) {
     return (
       <SafeAreaView style={styles.homePage} edges={PAGE_EDGES}>
         <ScrollView
-          contentContainerStyle={styles.homeContent}
+          contentContainerStyle={[styles.homeContent, pageInsets]}
           showsVerticalScrollIndicator={false}
         >
           {renderAllergyBanner()}
@@ -1787,7 +1790,7 @@ export default function HomeScreen({ navigation }: any) {
 
     return (
       <SafeAreaView style={styles.photoPage} edges={PAGE_EDGES}>
-        <ScrollView contentContainerStyle={styles.photoContent}>
+        <ScrollView contentContainerStyle={[styles.photoContent, pageInsets]}>
           {renderTopBar(
             isIngredients ? t("home.ingredientLabel") : t("home.frontPackage")
           )}
@@ -1916,7 +1919,7 @@ export default function HomeScreen({ navigation }: any) {
     return (
       <SafeAreaView style={styles.resultPage} edges={PAGE_EDGES}>
         <ScrollView
-          contentContainerStyle={styles.resultContent}
+          contentContainerStyle={[styles.resultContent, pageInsets]}
           keyboardShouldPersistTaps="handled"
         >
           {renderTopBar(t("home.reviewLabel"))}
@@ -2134,7 +2137,7 @@ export default function HomeScreen({ navigation }: any) {
 
     return (
       <SafeAreaView style={styles.resultPage} edges={PAGE_EDGES}>
-        <ScrollView contentContainerStyle={styles.resultContent}>
+        <ScrollView contentContainerStyle={[styles.resultContent, pageInsets]}>
           {renderTopBar(t("home.analysisResult"))}
           {renderAllergyBanner()}
           {renderPackageWarning()}

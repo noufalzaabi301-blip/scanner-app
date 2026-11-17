@@ -233,3 +233,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function useAppTheme(): ThemeContextValue {
   return useContext(ThemeContext);
 }
+export { INPUT_TOKENS, type InputTokens } from "./inputColors";

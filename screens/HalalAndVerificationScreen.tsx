@@ -18,6 +18,7 @@ import SettingsRow, {
   SettingsDivider,
   SettingsGroup,
 } from "../components/SettingsRow";
+import { usePageInsets } from "../lib/layout";
 import { COLORS, ROUTES } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
@@ -43,6 +44,8 @@ const SWITCH_TRACK = { false: "#C9D4CC", true: "#8FC9A5" };
 
 export default function HalalAndVerificationScreen({ navigation }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
 
   const [userId, setUserId] = useState<string | null>(null);
   const [preferences, setPreferences] =
@@ -143,7 +146,7 @@ export default function HalalAndVerificationScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.page}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, pageInsets]}>
         <View style={styles.card}>
           <Text style={styles.title}>{t("profile.halalAndVerification")}</Text>
 
@@ -241,8 +244,8 @@ const styles = StyleSheet.create({
   },
 
   card: {
+    // Full width of the shared page column (lib/layout.ts).
     width: "100%",
-    maxWidth: 560,
     alignSelf: "center",
     backgroundColor: "#FFFFFF",
     borderRadius: 24,

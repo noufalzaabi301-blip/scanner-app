@@ -13,6 +13,7 @@ import {
 } from "react-native";
 
 import LanguageSwitch from "../components/LanguageSwitch";
+import { usePageInsets } from "../lib/layout";
 import { hasAcceptedCurrentPrivacy } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
@@ -28,6 +29,8 @@ import {
 
 export default function LoginScreen({ navigation }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -95,7 +98,7 @@ export default function LoginScreen({ navigation }: any) {
 
   return (
     <ScrollView
-      contentContainerStyle={styles.page}
+      contentContainerStyle={[styles.page, pageInsets]}
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.content}>
@@ -191,8 +194,8 @@ const styles = StyleSheet.create({
   },
 
   content: {
+    // Full width of the shared page column (lib/layout.ts).
     width: "100%",
-    maxWidth: 320,
   },
 
   logo: {
@@ -280,7 +283,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     textAlign: "right",
-    marginTop: -3,
     marginBottom: 21,
   },
 

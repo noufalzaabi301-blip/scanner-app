@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { usePageInsets } from "../lib/layout";
 import { supabase } from "../lib/supabase";
 import { STORAGE_KEYS } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
@@ -22,6 +23,8 @@ const HAS_OPENED_KEY = STORAGE_KEYS.hasOpenedBefore;
 
 export default function WelcomeScreen({ navigation }: any) {
   const { t } = useI18n();
+  // Shared responsive side padding (lib/layout.ts).
+  const pageInsets = usePageInsets();
   const [checkingStart, setCheckingStart] = useState(true);
 
   useEffect(() => {
@@ -111,7 +114,7 @@ export default function WelcomeScreen({ navigation }: any) {
         </Text>
       </View>
 
-      <View style={styles.content}>
+      <View style={[styles.content, pageInsets]}>
         <Text style={styles.description}>
           {t("welcome.description")}
         </Text>
