@@ -14,13 +14,13 @@
 // ---------------------------------------------------------------------------
 
 import { useState } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
 } from "react-native";
 
+import { saveDeviceAcceptance } from "../lib/privacyConsent";
 import { usePageInsets } from "../lib/layout";
-import { PRIVACY_VERSION, STORAGE_KEYS } from "../lib/constants";
+import { PRIVACY_VERSION } from "../lib/constants";
 import { useI18n, type TranslationKey } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
@@ -101,7 +101,9 @@ export default function PrivacyNoticeScreen({ navigation, route }: any) {
     setSaving(true);
 
     try {
-      await AsyncStorage.setItem(STORAGE_KEYS.privacyNoticeAccepted, "true");
+      // Remembers WHICH version was accepted on this device, so sign-up,
+      // login and app start do not show the notice a second time.
+      await saveDeviceAcceptance();
 
       if (fromLogin) {
         await acceptForSignedInUser();

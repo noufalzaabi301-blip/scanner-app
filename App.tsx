@@ -23,6 +23,7 @@ import AvoidListScreen from "./screens/AvoidListScreen";
 import ContactUsScreen from "./screens/ContactUsScreen";
 import FAQsScreen from "./screens/FAQsScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
+import GuestPreferencesScreen from "./screens/GuestPreferencesScreen";
 import HalalAndVerificationScreen from "./screens/HalalAndVerificationScreen";
 import HomeScreen from "./screens/HomeScreen";
 import LoginScreen from "./screens/LoginScreen";
@@ -33,8 +34,9 @@ import ProfileSettingsScreen from "./screens/ProfileSettingsScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
 
+import { ensureAccountPrivacy } from "./lib/privacyConsent";
 import { useIsAdmin } from "./lib/adminAccess";
-import { COLORS, hasAcceptedCurrentPrivacy } from "./lib/constants";
+import { COLORS } from "./lib/constants";
 import { supabase } from "./lib/supabase";
 import { hasSavedPreferences } from "./lib/userPreferences";
 import { I18nProvider, useI18n } from "./lib/i18n";
@@ -77,6 +79,8 @@ export type RootStackParamList = {
   Profile: undefined;
   ProfileSettings: undefined;
   HalalAndVerification: undefined;
+  // Guest onboarding (answers saved on this device only).
+  GuestPreferences: { mode?: "edit" } | undefined;
   FAQs: undefined;
   ContactUs: undefined;
   AboutLabelLens: undefined;
@@ -106,7 +110,9 @@ async function chooseStartRoute(): Promise<StartRoute> {
       return "Welcome";
     }
 
-    if (!hasAcceptedCurrentPrivacy(user.user_metadata)) {
+    // Accepted on the account, or on this device (copied to the account):
+    // the notice is not shown a second time.
+    if (!(await ensureAccountPrivacy(user.user_metadata))) {
       return "PrivacyNotice";
     }
 
@@ -313,6 +319,12 @@ function AppNavigator() {
             name="ProfileSettings"
             component={ProfileSettingsScreen}
             options={{ title: t("title.profileSettings") }}
+          />
+
+          <Stack.Screen
+            name="GuestPreferences"
+            component={GuestPreferencesScreen}
+            options={{ title: t("title.guestPreferences") }}
           />
 
           <Stack.Screen

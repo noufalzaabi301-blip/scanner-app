@@ -49,6 +49,7 @@ export const ROUTES = {
   Avoid: "Avoid",
   Profile: "Profile",
   ProfileSettings: "ProfileSettings",
+  GuestPreferences: "GuestPreferences",
   HalalAndVerification: "HalalAndVerification",
   FAQs: "FAQs",
   ContactUs: "ContactUs",
@@ -60,6 +61,8 @@ export const ROUTES = {
 // bumping the version instead of migrating old data.
 export const STORAGE_KEYS = {
   privacyNoticeAccepted: "labellens_privacy_notice_accepted_v1",
+  // Guest allergy / halal answers (this device only, lib/guestPreferences.ts).
+  guestPreferences: "labellens_guest_preferences_v1",
   hasOpenedBefore: "labellens_has_opened_before",
 
   language: "labellens_language_v1",

@@ -13,8 +13,8 @@ import {
 } from "react-native";
 
 import LanguageSwitch from "../components/LanguageSwitch";
+import { ensureAccountPrivacy } from "../lib/privacyConsent";
 import { usePageInsets } from "../lib/layout";
-import { hasAcceptedCurrentPrivacy } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
@@ -71,7 +71,8 @@ export default function LoginScreen({ navigation }: any) {
       // Privacy gate: nobody reaches Preferences or Home without having
       // accepted the current Privacy Notice (for example an account created
       // before this check existed, or after the notice version changes).
-      if (!hasAcceptedCurrentPrivacy(user.user_metadata)) {
+      // A notice already accepted on this device is reused (not shown again).
+      if (!(await ensureAccountPrivacy(user.user_metadata))) {
         navigation.reset({
           index: 0,
           routes: [{ name: "PrivacyNotice", params: { fromLogin: true } }],

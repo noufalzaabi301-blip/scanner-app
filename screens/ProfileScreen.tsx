@@ -403,6 +403,26 @@ export default function ProfileScreen({ navigation }: any) {
           </>
         )}
 
+        {/* 2b. Guests: their on-device allergy / halal answers. */}
+        {!loading && !account && (
+          <>
+            <SettingsSectionTitle>
+              {t("profile.sectionPreferences")}
+            </SettingsSectionTitle>
+
+            <SettingsGroup>
+              <SettingsRow
+                icon="options-outline"
+                title={t("guest.profileRow")}
+                subtitle={t("guest.profileRowHint")}
+                onPress={() =>
+                  navigation.navigate(ROUTES.GuestPreferences, { mode: "edit" })
+                }
+              />
+            </SettingsGroup>
+          </>
+        )}
+
         {/* 3. Language (available to guests too) */}
         <SettingsSectionTitle>{t("profile.sectionLanguage")}</SettingsSectionTitle>
 

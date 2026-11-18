@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { hasDeviceAcceptedPrivacy } from "../lib/privacyConsent";
 import { usePageInsets } from "../lib/layout";
 import { supabase } from "../lib/supabase";
-import { STORAGE_KEYS } from "../lib/constants";
+import { ROUTES, STORAGE_KEYS } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import {
   ActivityIndicator,
@@ -18,7 +19,6 @@ import {
   View,
 } from "../components/Themed";
 
-const PRIVACY_NOTICE_KEY = STORAGE_KEYS.privacyNoticeAccepted;
 const HAS_OPENED_KEY = STORAGE_KEYS.hasOpenedBefore;
 
 export default function WelcomeScreen({ navigation }: any) {
@@ -28,11 +28,19 @@ export default function WelcomeScreen({ navigation }: any) {
   const [checkingStart, setCheckingStart] = useState(true);
 
   useEffect(() => {
+    // Guard: this check runs once per visit. In development React runs
+    // effects twice; without the guard both runs could open the Privacy
+    // Notice, stacking two copies.
+    let cancelled = false;
+
     async function chooseStartScreen() {
       try {
-        // Show the Privacy Notice only once on this device.
-        const privacyAccepted =
-          await AsyncStorage.getItem(PRIVACY_NOTICE_KEY);
+        // Show the Privacy Notice only once on this device (per version).
+        const privacyAccepted = await hasDeviceAcceptedPrivacy();
+
+        if (cancelled) {
+          return;
+        }
 
         if (!privacyAccepted) {
           navigation.replace("PrivacyNotice", {
@@ -60,7 +68,7 @@ export default function WelcomeScreen({ navigation }: any) {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (session) {
+        if (session && !cancelled) {
           navigation.replace("Home");
           return;
         }
@@ -72,14 +80,21 @@ export default function WelcomeScreen({ navigation }: any) {
     }
 
     chooseStartScreen();
+
+    return () => {
+      cancelled = true;
+    };
   }, [navigation]);
 
+  // Guest mode: the guest must set allergy and halal preferences first
+  // (screens/GuestPreferencesScreen.tsx). The scanner never opens
+  // directly. Welcome stays underneath, so going back returns here.
   async function continueAsGuest() {
     await supabase.auth.signOut({
       scope: "local",
     });
 
-    navigation.replace("Home");
+    navigation.navigate(ROUTES.GuestPreferences);
   }
 
   if (checkingStart) {

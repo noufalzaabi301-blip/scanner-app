@@ -553,6 +553,8 @@ npx tsx scripts/testSaveReason.ts         # "Reason saved" (share text / PDF)
 npx tsx scripts/testConsent.ts            # submissions only with consent
 npx tsx scripts/testPasswordFields.ts     # dark-theme password fields
 npx tsx scripts/testResponsiveTheme.ts    # dark input colours, responsive web layout
+npx tsx scripts/testGuestMode.ts          # guest onboarding, local-only storage, no submissions
+npx tsx scripts/testPrivacyOnce.ts        # Privacy Notice shown once, acceptance persists
 npx expo-doctor                           # Expo project health (needs internet)
 ```
 
@@ -567,6 +569,37 @@ Manual checklist:
 - Dark theme and text size (Profile → Appearance).
 
 ---
+
+## Guest mode
+
+"Continue as guest" opens **Your preferences** (not the scanner). The guest
+answers two questions:
+
+- **Do you have any food allergies?** Yes (pick standard allergies, add or
+  delete custom ones) or **No allergies**. With No allergies, scanning still
+  works and the app says that allergy matching is off.
+- **Do you prefer halal food?** Yes / No.
+
+Answers are saved only on this device (AsyncStorage key
+`labellens_guest_preferences_v1`; localStorage on the web). Nothing is
+written to Supabase for guests, and guests never send products for review
+(the switch does not exist for them, the scanner checks `!isGuest`, and the
+submission helper requires a signed-in user). Going back from the screen
+without saving returns to the Welcome screen. Guests can edit their answers
+from Profile → Guest preferences or the Edit link on the scanner.
+Signed-in users are unchanged: their preferences stay in the user database.
+
+## Privacy Notice (shown once)
+
+The notice is shown once per notice version. Accepting stores
+`{"version":"1.2","acceptedAt":"…"}` under
+`labellens_privacy_notice_accepted_v1` on the device. Sign-up on the same
+device reuses that acceptance (the account gets `privacy_accepted`,
+`privacy_version`, `privacy_accepted_at`), so the notice is not shown a
+second time; logging in on that device copies it to the account if missing.
+Changing `PRIVACY_VERSION` asks everyone again. The full notice is always
+available in Profile → Privacy Notice and from the "Read it again" link on
+the sign-up screen.
 
 ## Languages and RTL
 

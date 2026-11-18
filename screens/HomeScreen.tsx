@@ -66,6 +66,11 @@ import {
   pruneOldLocalPhotos,
   uploadPhotoToBucket,
 } from "../lib/photoStorage";
+import {
+  guestScreeningPreferences,
+  isGuestSetupComplete,
+  loadGuestPreferences,
+} from "../lib/guestPreferences";
 import { submitProductForReview } from "../lib/productSubmission";
 import { localizedResult, resultTextsToTranslate } from "../lib/resultDisplay";
 import { buildSaveReason } from "../lib/saveReason";
@@ -340,19 +345,47 @@ function reviewReasonsFor(
   return [...new Set(reasons)];
 }
 
-// Loads the CURRENT user's allergies, halal setting and product-submission
-// consent from Supabase (the database is the source of truth).
-async function fetchUserPreferences(): Promise<{
+// Loads the CURRENT allergies, halal setting and product-submission
+// consent:
+//   signed in → from Supabase (the database is the source of truth);
+//   guest     → from this device only (lib/guestPreferences.ts). Guests
+//               never submit products for review (submitProducts: false)
+//               and their answers are never sent to Supabase.
+// guestSetupNeeded = a guest who has not answered both questions yet.
+type ScanPreferences = {
   allergies: string[];
   prefersHalal: boolean;
   submitProducts: boolean;
-}> {
+  isGuest: boolean;
+  guestSetupNeeded: boolean;
+};
+
+async function fetchUserPreferences(): Promise<ScanPreferences> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    const guest = await loadGuestPreferences();
+    const forScreening = guestScreeningPreferences(guest);
+
+    return {
+      allergies: forScreening.allergies,
+      prefersHalal: forScreening.prefersHalal,
+      submitProducts: false,
+      isGuest: true,
+      guestSetupNeeded: !isGuestSetupComplete(guest),
+    };
+  }
+
   const preferences = await fetchCurrentUserPreferences();
 
   return {
     allergies: preferences.allergies,
     prefersHalal: preferences.prefersHalal,
     submitProducts: preferences.submitProducts,
+    isGuest: false,
+    guestSetupNeeded: false,
   };
 }
 
@@ -420,6 +453,8 @@ export default function HomeScreen({ navigation }: any) {
 
   // User preferences (banner).
   const [userAllergies, setUserAllergies] = useState<string[]>([]);
+  // Guest = no signed-in account; preferences come from this device.
+  const [isGuest, setIsGuest] = useState(false);
   const [prefersHalal, setPrefersHalal] = useState(false);
 
   // Lookup + screening state.
@@ -477,6 +512,18 @@ export default function HomeScreen({ navigation }: any) {
   const loadUserPreferences = useCallback(async () => {
     try {
       const prefs = await fetchUserPreferences();
+      setIsGuest(prefs.isGuest);
+
+      // A guest who has not answered the preference questions cannot
+      // scan: the onboarding opens instead (Welcome stays underneath).
+      if (prefs.guestSetupNeeded) {
+        navigation.reset({
+          index: 1,
+          routes: [{ name: "Welcome" }, { name: "GuestPreferences" }],
+        });
+        return;
+      }
+
       await prepareAllergyLabels(prefs.allergies);
       setUserAllergies(prefs.allergies);
       setPrefersHalal(prefs.prefersHalal);
@@ -484,7 +531,7 @@ export default function HomeScreen({ navigation }: any) {
       // Guests / offline: the banner keeps its last value.
       console.warn("Could not load preferences:", error);
     }
-  }, []);
+  }, [navigation]);
 
   // Latest stage / product / screening function, read by the focus listener.
   // Using refs means the listener is added once and can never loop or use
@@ -627,6 +674,8 @@ export default function HomeScreen({ navigation }: any) {
           <Text style={styles.allergyValue}>
             {userAllergies.length > 0
               ? joinList(allergyLabelList(userAllergies, t))
+              : isGuest
+              ? t("guest.matchingOffBanner")
               : t("home.noAllergies")}
           </Text>
           <Text style={styles.halalPreference}>
@@ -635,7 +684,12 @@ export default function HomeScreen({ navigation }: any) {
         </View>
 
         <TouchableOpacity
-          onPress={() => openScreen("Preferences", { mode: "edit" })}
+          onPress={() =>
+            // Guests edit their on-device answers; accounts their saved ones.
+            isGuest
+              ? openScreen("GuestPreferences", { mode: "edit" })
+              : openScreen("Preferences", { mode: "edit" })
+          }
           activeOpacity={0.8}
           accessibilityLabel={t("home.editProfileA11y")}
         >
@@ -1426,6 +1480,16 @@ export default function HomeScreen({ navigation }: any) {
         return; // a new scan started meanwhile
       }
 
+      // Guest without answered preferences: no result without them.
+      if (prefs.guestSetupNeeded) {
+        navigation.reset({
+          index: 1,
+          routes: [{ name: "Welcome" }, { name: "GuestPreferences" }],
+        });
+        return;
+      }
+
+      setIsGuest(prefs.isGuest);
       setUserAllergies(prefs.allergies);
       setPrefersHalal(prefs.prefersHalal);
 
@@ -1452,7 +1516,7 @@ export default function HomeScreen({ navigation }: any) {
       // Background submission: only when the saved preference is on.
       // Never awaited, never shows errors, never blocks analysis or the
       // Avoid List. Duplicates are skipped inside the helper.
-      if (prefs.submitProducts) {
+      if (prefs.submitProducts && !prefs.isGuest) {
         void submitProductForReview(
           {
             barcode: confirmed.barcode,

@@ -19,6 +19,10 @@ import {
 } from "react-native";
 
 import LanguageSwitch from "../components/LanguageSwitch";
+import {
+  deviceAcceptanceMetadata,
+  hasDeviceAcceptedPrivacy,
+} from "../lib/privacyConsent";
 import { usePageInsets } from "../lib/layout";
 import { PRIVACY_VERSION } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
@@ -90,9 +94,32 @@ export default function RegisterScreen({
     return { cleanFirstName, cleanLastName, cleanEmail };
   }
 
-  // Step 1 -> 2: validate, then show the Privacy Notice. No account yet.
-  function continueToPrivacyNotice() {
+  // Already accepted on this device (e.g. when the app first opened)?
+  // Then it is not shown a second time; the same acceptance is recorded
+  // on the new account.
+  const [privacyAcceptedOnDevice, setPrivacyAcceptedOnDevice] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    hasDeviceAcceptedPrivacy().then((accepted) => {
+      if (active) {
+        setPrivacyAcceptedOnDevice(accepted);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Step 1 -> 2: validate, then show the Privacy Notice (only if it was not
+  // accepted on this device yet). No account yet.
+  async function continueToPrivacyNotice() {
     if (loading || !validateForm()) {
+      return;
+    }
+
+    if (await hasDeviceAcceptedPrivacy()) {
+      void createAccount();
       return;
     }
 
@@ -124,6 +151,14 @@ export default function RegisterScreen({
     setLoading(true);
 
     try {
+      // The acceptance made on this device (date and version), or "now"
+      // when the notice was accepted on the previous screen.
+      const privacy = (await deviceAcceptanceMetadata()) ?? {
+        privacy_accepted: true as const,
+        privacy_version: PRIVACY_VERSION,
+        privacy_accepted_at: new Date().toISOString(),
+      };
+
       const { data, error } =
         await supabase.auth.signUp({
           email: cleanEmail,
@@ -133,12 +168,9 @@ export default function RegisterScreen({
               first_name: cleanFirstName,
               last_name: cleanLastName,
               full_name: `${cleanFirstName} ${cleanLastName}`,
-              // Recorded only because the user has just accepted the
-              // notice on the previous screen.
-              privacy_accepted: true,
-              privacy_version: PRIVACY_VERSION,
-              privacy_accepted_at:
-                new Date().toISOString(),
+              // Recorded only because the user explicitly accepted the
+              // notice (on this device or on the previous screen).
+              ...privacy,
             },
           },
         });
@@ -279,7 +311,22 @@ export default function RegisterScreen({
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.privacyHint}>{t("register.privacyHint")}</Text>
+        {privacyAcceptedOnDevice ? (
+          <Text style={styles.privacyHint}>
+            {t("register.privacyAlreadyAccepted")}{" "}
+            <Text
+              style={styles.privacyLink}
+              onPress={() =>
+                navigation.navigate("PrivacyNotice", { readOnly: true })
+              }
+              accessibilityRole="link"
+            >
+              {t("register.readPrivacyAgain")}
+            </Text>
+          </Text>
+        ) : (
+          <Text style={styles.privacyHint}>{t("register.privacyHint")}</Text>
+        )}
 
         <TouchableOpacity
           style={[
@@ -406,6 +453,12 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
+  },
+
+  privacyLink: {
+    color: "#176B43",
+    fontWeight: "700",
+    textDecorationLine: "underline",
   },
 
   privacyHint: {
