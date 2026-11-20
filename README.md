@@ -102,7 +102,8 @@ Developed as a project at **United Arab Emirates University**.
 
 ### Account and profile
 - Sign up, log in, reset a forgotten password with an emailed code, delete account.
-- **Privacy Notice must be accepted before an account is created.**
+- **Privacy Notice is shown once after login / sign-up (or after choosing
+  guest), never before** — then allergy + halal setup, then Scan.
 - After the first login or sign-up, the app opens directly on the **Scan**
   screen until the user logs out.
 - Profile: real name and email, edit name and password, allergies, halal
@@ -554,12 +555,15 @@ npx tsx scripts/testConsent.ts            # submissions only with consent
 npx tsx scripts/testPasswordFields.ts     # dark-theme password fields
 npx tsx scripts/testResponsiveTheme.ts    # dark input colours, responsive web layout
 npx tsx scripts/testGuestMode.ts          # guest onboarding, local-only storage, no submissions
-npx tsx scripts/testPrivacyOnce.ts        # Privacy Notice shown once, acceptance persists
+npx tsx scripts/testPrivacyOnce.ts        # notice only after login / guest, once per version
+npx tsx scripts/testAllergyBatch.ts       # several allergies at once, duplicates, invalid entries
+npx tsx scripts/testAllergyEditorTheme.ts # dark-mode tokens, Welcome language, forgot password
 npx expo-doctor                           # Expo project health (needs internet)
 ```
 
 Manual checklist:
-- Sign up → Privacy Notice → accept → Preferences → Scan.
+- Welcome → Create account → Privacy Notice → accept → allergies + halal → Scan.
+- Welcome → Continue as guest → Privacy Notice → guest setup → Scan.
 - Close and reopen the app: it opens on Scan; Log out returns to Login.
 - Scan a barcode from the food database, Open Food Facts, and an unknown one
   (photo flow).
@@ -570,36 +574,63 @@ Manual checklist:
 
 ---
 
+## Start-up order and the Privacy Notice
+
+```
+Welcome ─┬─ Login / Create account ─ (signed in) ─ Privacy Notice* ─ allergy + halal setup** ─ Scan
+         └─ Continue as guest ──────────────────── Privacy Notice* ─ guest allergy + halal setup ─ Scan
+```
+
+\* Only when the current notice version (`PRIVACY_VERSION`) has not been
+accepted yet. It is **never** shown before Login / Create account and never
+on the scanner. Accepting stores `{"version":"1.2","acceptedAt":"…"}` on the
+device (`labellens_privacy_notice_accepted_v1`); for signed-in users it is
+also saved on the account (`privacy_accepted`, `privacy_version`,
+`privacy_accepted_at`). Already accepted → skipped on later sessions and
+after reloads. A new `PRIVACY_VERSION` asks once more. The full notice
+stays available in Profile → Privacy Notice (read-only). Routing lives in
+`lib/postAuthRoute.ts`.
+
+\*\* First time only (no saved preferences): the allergy question and
+"Do you prefer halal food?" are both required before the first scan. The
+halal answer is saved in `user_preferences.prefers_halal`; editing
+allergies later never changes it (halal is edited in Halal & verification).
+
 ## Guest mode
 
-"Continue as guest" opens **Your preferences** (not the scanner). The guest
-answers two questions:
-
-- **Do you have any food allergies?** Yes (pick standard allergies, add or
-  delete custom ones) or **No allergies**. With No allergies, scanning still
-  works and the app says that allergy matching is off.
-- **Do you prefer halal food?** Yes / No.
-
-Answers are saved only on this device (AsyncStorage key
+"Continue as guest" → Privacy Notice (once per version on the device) →
+**Your preferences** (allergies Yes / No allergies, halal Yes / No) →
+scanner. Everything is saved only on the device (AsyncStorage key
 `labellens_guest_preferences_v1`; localStorage on the web). Nothing is
-written to Supabase for guests, and guests never send products for review
-(the switch does not exist for them, the scanner checks `!isGuest`, and the
-submission helper requires a signed-in user). Going back from the screen
-without saving returns to the Welcome screen. Guests can edit their answers
-from Profile → Guest preferences or the Edit link on the scanner.
-Signed-in users are unchanged: their preferences stay in the user database.
+written to Supabase for guests, and guests never send products for review.
+Back from the notice or the setup returns to Welcome.
 
-## Privacy Notice (shown once)
+## Allergy editor
 
-The notice is shown once per notice version. Accepting stores
-`{"version":"1.2","acceptedAt":"…"}` under
-`labellens_privacy_notice_accepted_v1` on the device. Sign-up on the same
-device reuses that acceptance (the account gets `privacy_accepted`,
-`privacy_version`, `privacy_accepted_at`), so the notice is not shown a
-second time; logging in on that device copies it to the account if missing.
-Changing `PRIVACY_VERSION` asks everyone again. The full notice is always
-available in Profile → Privacy Notice and from the "Read it again" link on
-the sign-up screen.
+`components/AllergyEditor.tsx` is shared by the account editor and guest
+setup. No checkboxes:
+
+- **Your selected allergies**: standard and custom allergies in ONE list,
+  each with a delete button that removes only that allergy
+  ("No allergies selected yet." when empty).
+- **Add another allergy**: text field + Add. One or several allergies,
+  separated by commas or new lines ("Milk, Eggs, Peanuts"). Each is
+  validated separately (`lib/allergyBatch.ts` → `validateCustomAllergy`),
+  duplicates are skipped, invalid entries stay in the field with their own
+  reason, existing allergies are kept.
+- **Common allergies**: the standard allergies not chosen yet, each with an
+  Add button; once added it moves into "Your selected allergies".
+
+The halal Yes/No question is separate (first-time setup only). Saving
+allergies never overwrites the halal preference. Colours come from explicit
+theme tokens (`lib/formTokens.ts`) so everything is clearly visible in dark
+mode.
+
+## Password reset from Profile
+
+Profile → Profile settings → **Forgot your password?** opens the existing
+six-digit code flow (`ForgotPasswordScreen`), with the email filled in. The
+current password is not needed. Every password field has Show / Hide.
 
 ## Languages and RTL
 

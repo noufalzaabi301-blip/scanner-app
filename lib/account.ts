@@ -16,7 +16,7 @@ import {
 import { translate } from "./i18n/translate";
 import { supabase } from "./supabase";
 
-// Short name of the user project, e.g. "lqbbbzoleutjhlfkljae", for messages.
+// Short name (project ref) of the user project, for messages.
 function userProjectRef(): string {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
   return url.replace(/^https?:\/\//, "").split(".")[0] || "?";

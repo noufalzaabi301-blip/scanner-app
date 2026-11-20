@@ -3,13 +3,16 @@
 // Profile settings (account details only):
 //   1. Your details – first / last name (Supabase auth user metadata);
 //      the email is read-only because changing it needs verification.
-//   2. Change password.
+//   2. Change password, and "Forgot your password?" (opens the existing
+//      six-digit reset-code flow in ForgotPasswordScreen).
 // Halal and product-verification switches are NOT here; they live only in
 // HalalAndVerificationScreen.tsx.
 // ---------------------------------------------------------------------------
 
 import { useCallback, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
+// Plain icon: drawn with the form-token colour as-is.
+import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -17,6 +20,8 @@ import {
 
 import { usePageInsets } from "../lib/layout";
 import { useI18n } from "../lib/i18n";
+import { ROUTES } from "../lib/constants";
+import { useFormTokens } from "../lib/theme";
 import PasswordInput from "../components/PasswordInput";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
@@ -33,6 +38,7 @@ type Status = { kind: "success" | "error"; text: string } | null;
 
 export default function ProfileSettingsScreen({ navigation }: any) {
   const { t } = useI18n();
+  const forms = useFormTokens();
   // Shared responsive side padding (lib/layout.ts).
   const pageInsets = usePageInsets();
 
@@ -311,6 +317,30 @@ export default function ProfileSettingsScreen({ navigation }: any) {
           </TouchableOpacity>
 
           <StatusText status={passwordStatus} />
+
+          {/* Forgot password: opens the existing six-digit code flow
+              (screens/ForgotPasswordScreen.tsx). No current password is
+              needed; the email is filled in for convenience. */}
+          <View style={styles.forgotBox}>
+            <TouchableOpacity
+              onPress={() =>
+                navigation.navigate(ROUTES.ForgotPassword, {
+                  email: email || undefined,
+                })
+              }
+              accessibilityRole="link"
+              style={styles.forgotLink}
+              testID="settings-forgot-password"
+            >
+              <Ionicons name="key-outline" size={18} color={forms.linkText} />
+              <Text style={[styles.forgotText, { color: forms.linkText }]}>
+                {t("settings.forgotPassword")}
+              </Text>
+            </TouchableOpacity>
+            <Text style={[styles.forgotHint, { color: forms.mutedText }]}>
+              {t("settings.forgotPasswordHint")}
+            </Text>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -318,6 +348,33 @@ export default function ProfileSettingsScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  forgotBox: {
+    marginTop: 18,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#E2E9E4",
+    gap: 4,
+  },
+
+  forgotLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 44,
+    alignSelf: "flex-start",
+  },
+
+  forgotText: {
+    fontSize: 15,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
+
+  forgotHint: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
   page: {
     flex: 1,
     backgroundColor: "#F7F9F7",

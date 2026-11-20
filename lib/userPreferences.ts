@@ -121,6 +121,10 @@ export type AllergyFields = {
   hasAllergies: boolean;
   allergies: string[];
   otherAllergy: string | null;
+  // Only the first-time setup sends this (the halal Yes/No asked before
+  // the first scan). Left out when editing allergies, so the saved halal
+  // preference is never overwritten there.
+  prefersHalal?: boolean;
 };
 
 // Saves the allergy part of user_preferences WITHOUT touching the halal
@@ -149,7 +153,10 @@ export async function saveAllergyPreferences(
 
   const row = {
     user_id: userId,
-    prefers_halal: existing?.prefers_halal === true,
+    prefers_halal:
+      typeof fields.prefersHalal === "boolean"
+        ? fields.prefersHalal
+        : existing?.prefers_halal === true,
     submit_products_for_review: existing?.submit_products_for_review === true,
     has_allergies: fields.hasAllergies,
     allergies: fields.hasAllergies ? fields.allergies : [],

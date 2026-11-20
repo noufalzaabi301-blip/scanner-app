@@ -9,8 +9,8 @@
 // ---------------------------------------------------------------------------
 
 export const DARK_INPUT_TEXT = "#F1F6F3";
-export const DARK_PLACEHOLDER = "#7C8A83";
-export const LIGHT_PLACEHOLDER = "#8A9A91";
+export const DARK_PLACEHOLDER = "#8E9C95"; // grey, 6:1 on the field
+export const LIGHT_PLACEHOLDER = "#647169"; // 4.9:1 on white
 
 // Input tokens of the theme system (re-exported by lib/theme.tsx and used
 // by components/Themed.tsx → TextInput for EVERY text field).
@@ -39,9 +39,9 @@ export const INPUT_TOKENS: { light: InputTokens; dark: InputTokens } = {
   dark: {
     // A dark inset surface, visibly different from the dark cards
     // (#262D29) and page (#1A221D), with a clearly visible border.
-    surface: "#141C18",
+    surface: "#121A16",
     disabledSurface: "#1E2622",
-    border: "#5A6B61",
+    border: "#7A8E83", // 4:1 on the page, 5:1 on the field
     focusBorder: "#5CC08A",
     text: DARK_INPUT_TEXT,
     disabledText: "#A3B0A8",

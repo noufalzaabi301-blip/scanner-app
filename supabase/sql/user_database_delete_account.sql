@@ -1,7 +1,7 @@
 -- ---------------------------------------------------------------------------
 -- supabase/sql/user_database_delete_account.sql
 -- Run in the SQL editor of the USER (customer) project only:
---   https://supabase.com/dashboard/project/lqbbbzoleutjhlfkljae/sql
+--   Supabase dashboard → your USER project → SQL Editor
 --
 -- Fixes "permission denied for table avoid_list" (Postgres error 42501)
 -- in the delete-account Edge Function.

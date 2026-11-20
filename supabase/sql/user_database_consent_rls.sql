@@ -1,7 +1,7 @@
 -- ---------------------------------------------------------------------------
 -- supabase/sql/user_database_consent_rls.sql
 -- Run in the SQL editor of the USER database project ONLY
--- (https://lqbbbzoleutjhlfkljae.supabase.co). Never in the food project.
+-- (the project in EXPO_PUBLIC_SUPABASE_URL). Never in the food project.
 --
 -- Run supabase/sql/user_database_inspect.sql first and check that the
 -- columns below exist with these names:
@@ -28,7 +28,7 @@
 --
 -- The food database is not touched here. Its products table must stay
 -- read-only for app users: run supabase/sql/food_database_read_only.sql in
--- the FOOD project (https://eaxhrwdfcycmtfgjgtdo.supabase.co).
+-- the FOOD project (the project in EXPO_PUBLIC_PRODUCT_SUPABASE_URL).
 --
 -- Safe to run more than once. Runs in one transaction.
 -- ---------------------------------------------------------------------------

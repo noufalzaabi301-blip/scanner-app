@@ -1,7 +1,7 @@
 -- ---------------------------------------------------------------------------
 -- supabase/sql/user_database_consent_report.sql
 -- READ-ONLY verification queries. Run in the SQL editor of the USER
--- database project (https://lqbbbzoleutjhlfkljae.supabase.co).
+-- database project (the USER project; see EXPO_PUBLIC_SUPABASE_URL).
 -- The SQL editor runs as an administrator, so it sees all users.
 --
 -- Meaning:

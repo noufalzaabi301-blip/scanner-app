@@ -2,29 +2,27 @@
 // screens/RegisterScreen.tsx
 // Registration flow:
 //   1. The user fills in the form and presses Continue (validated here).
-//   2. The Privacy Notice opens (PrivacyNotice, fromSignup: true).
-//   3. Only after the user ticks and accepts it does the notice return here
-//      with privacyAccepted: true, and the account is created.
-//   4. Session returned  -> Preferences.
-//      Email confirmation -> Login (the notice was already accepted in 2).
+//   2. The account is created.
+//   3. Session returned  -> Privacy Notice (if this version was not
+//                           accepted yet) -> allergy + halal setup -> Scan.
+//      Email confirmation -> Login; after logging in, the same steps.
+// The Privacy Notice is never shown before Login / Create account
+// (lib/postAuthRoute.ts).
 // The password stays in this screen's state; it is never put in route
 // params. The product-submission choice is NOT asked here: it lives only in
 // Preferences and is off until the user turns it on.
 // ---------------------------------------------------------------------------
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   StyleSheet,
 } from "react-native";
 
 import LanguageSwitch from "../components/LanguageSwitch";
-import {
-  deviceAcceptanceMetadata,
-  hasDeviceAcceptedPrivacy,
-} from "../lib/privacyConsent";
+import { routeAfterSignIn } from "../lib/postAuthRoute";
+import { deviceAcceptanceMetadata } from "../lib/privacyConsent";
 import { usePageInsets } from "../lib/layout";
-import { PRIVACY_VERSION } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
@@ -38,7 +36,6 @@ import {
 
 export default function RegisterScreen({
   navigation,
-  route,
 }: any) {
   const { t } = useI18n();
   // Shared responsive side padding (lib/layout.ts).
@@ -97,46 +94,16 @@ export default function RegisterScreen({
   // Already accepted on this device (e.g. when the app first opened)?
   // Then it is not shown a second time; the same acceptance is recorded
   // on the new account.
-  const [privacyAcceptedOnDevice, setPrivacyAcceptedOnDevice] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    hasDeviceAcceptedPrivacy().then((accepted) => {
-      if (active) {
-        setPrivacyAcceptedOnDevice(accepted);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // Step 1 -> 2: validate, then show the Privacy Notice (only if it was not
-  // accepted on this device yet). No account yet.
-  async function continueToPrivacyNotice() {
+  // Step 1 -> 2: validate, then create the account. The Privacy Notice is
+  // shown AFTER the account is signed in (lib/postAuthRoute.ts), never
+  // before Login / Create account.
+  async function submitRegistration() {
     if (loading || !validateForm()) {
       return;
     }
 
-    if (await hasDeviceAcceptedPrivacy()) {
-      void createAccount();
-      return;
-    }
-
-    navigation.navigate("PrivacyNotice", { fromSignup: true });
+    await createAccount();
   }
-
-  // Step 3: the Privacy Notice sends privacyAccepted: true back here only
-  // after the user explicitly accepted it.
-  useEffect(() => {
-    if (route?.params?.privacyAccepted !== true) {
-      return;
-    }
-
-    navigation.setParams({ privacyAccepted: undefined });
-    void createAccount();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route?.params?.privacyAccepted]);
 
   async function createAccount() {
     const values = validateForm();
@@ -151,13 +118,10 @@ export default function RegisterScreen({
     setLoading(true);
 
     try {
-      // The acceptance made on this device (date and version), or "now"
-      // when the notice was accepted on the previous screen.
-      const privacy = (await deviceAcceptanceMetadata()) ?? {
-        privacy_accepted: true as const,
-        privacy_version: PRIVACY_VERSION,
-        privacy_accepted_at: new Date().toISOString(),
-      };
+      // Only when this version was already accepted on this device (with
+      // its real date). Otherwise the notice is shown once the account is
+      // signed in, and accepting it there records it on the account.
+      const privacy = (await deviceAcceptanceMetadata()) ?? {};
 
       const { data, error } =
         await supabase.auth.signUp({
@@ -168,8 +132,8 @@ export default function RegisterScreen({
               first_name: cleanFirstName,
               last_name: cleanLastName,
               full_name: `${cleanFirstName} ${cleanLastName}`,
-              // Recorded only because the user explicitly accepted the
-              // notice (on this device or on the previous screen).
+              // Recorded only if the user explicitly accepted the notice
+              // on this device before.
               ...privacy,
             },
           },
@@ -180,14 +144,15 @@ export default function RegisterScreen({
         return;
       }
 
-      if (data.session) {
-        // Step 4: first-time setup (cannot be skipped with back/swipe).
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Preferences" }],
-        });
+      if (data.session && data.user) {
+        // Signed in: Privacy Notice (if not accepted yet), then the
+        // first-time allergy + halal setup (cannot be skipped with
+        // back/swipe).
+        const next = await routeAfterSignIn(data.user);
+        navigation.reset({ index: 0, routes: [next] });
       } else {
-        // Email confirmation is on: the notice was already accepted.
+        // Email confirmation is on: after confirming, Login shows the
+        // Privacy Notice and the first-time setup.
         showMessage(t("register.verifyTitle"), t("register.verifyBody"));
 
         navigation.reset({
@@ -311,29 +276,14 @@ export default function RegisterScreen({
           </TouchableOpacity>
         </View>
 
-        {privacyAcceptedOnDevice ? (
-          <Text style={styles.privacyHint}>
-            {t("register.privacyAlreadyAccepted")}{" "}
-            <Text
-              style={styles.privacyLink}
-              onPress={() =>
-                navigation.navigate("PrivacyNotice", { readOnly: true })
-              }
-              accessibilityRole="link"
-            >
-              {t("register.readPrivacyAgain")}
-            </Text>
-          </Text>
-        ) : (
-          <Text style={styles.privacyHint}>{t("register.privacyHint")}</Text>
-        )}
+        <Text style={styles.privacyHint}>{t("register.privacyHint")}</Text>
 
         <TouchableOpacity
           style={[
             styles.button,
             loading && styles.disabledButton,
           ]}
-          onPress={continueToPrivacyNotice}
+          onPress={() => void submitRegistration()}
           disabled={loading}
           activeOpacity={0.8}
         >
@@ -455,11 +405,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  privacyLink: {
-    color: "#176B43",
-    fontWeight: "700",
-    textDecorationLine: "underline",
-  },
 
   privacyHint: {
     color: "#68766F",

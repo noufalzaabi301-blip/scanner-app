@@ -49,21 +49,15 @@ export type RootStackParamList = {
   Login: undefined;
   
 
-  // privacyAccepted is set only by PrivacyNotice after explicit acceptance.
-  Register:
-    | {
-        privacyAccepted?: boolean;
-      }
-    | undefined;
+  Register: undefined;
 
-  ForgotPassword: undefined;
+  ForgotPassword: { email?: string } | undefined;
 
   PrivacyNotice:
     | {
-        fromAppStart?: boolean;
-        fromSignup?: boolean;
-        fromLogin?: boolean;
-        readOnly?: boolean;
+        fromLogin?: boolean; // signed in, not accepted yet
+        fromGuest?: boolean; // guest, not accepted on this device yet
+        readOnly?: boolean; // Profile → Privacy Notice
       }
     | undefined;
 
@@ -266,14 +260,12 @@ function AppNavigator() {
             }
             options={({ route }) => ({
               title: t("title.privacyNotice"),
-              // First launch: cannot go back past it. Sign-up: going back
-              // only returns to the Register form (no account is created).
+              // Signed in: cannot go back past it (Log out instead).
+              // Guest: Back returns to Welcome. Profile: read-only.
               headerBackVisible:
                 route.params?.readOnly === true ||
-                route.params?.fromSignup === true,
-              gestureEnabled:
-                route.params?.fromAppStart !== true &&
-                route.params?.fromLogin !== true,
+                route.params?.fromGuest === true,
+              gestureEnabled: route.params?.fromLogin !== true,
             })}
           />
 

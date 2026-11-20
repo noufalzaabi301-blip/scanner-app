@@ -36,12 +36,15 @@ import {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function ForgotPasswordScreen({ navigation }: any) {
+export default function ForgotPasswordScreen({ navigation, route }: any) {
   const { t } = useI18n();
   // Shared responsive side padding (lib/layout.ts).
   const pageInsets = usePageInsets();
   const [step, setStep] = useState<"email" | "code">("email");
-  const [email, setEmail] = useState("");
+  // Profile Settings passes the signed-in email (only fills the field in).
+  const [email, setEmail] = useState(
+    typeof route?.params?.email === "string" ? route.params.email : ""
+  );
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

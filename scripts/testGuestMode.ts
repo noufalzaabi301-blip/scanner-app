@@ -119,8 +119,13 @@ test("'Continue as guest' opens the onboarding, not the scanner", () => {
   const welcome = read("screens/WelcomeScreen.tsx");
   const fn = welcome.slice(welcome.indexOf("async function continueAsGuest"));
   const body = fn.slice(0, fn.indexOf("\n  }\n"));
-  assert.match(body, /navigate\(ROUTES\.GuestPreferences\)/);
-  assert.ok(!/"Home"/.test(body), "must not open Home directly");
+  assert.match(body, /await routeForGuest\(\)/);
+  assert.ok(!/"Home"|ROUTES\.Home/.test(body), "must not open Home directly");
+  const route = read("lib/postAuthRoute.ts");
+  const guest = route.slice(route.indexOf("export async function routeForGuest"));
+  assert.match(guest, /ROUTES\.GuestPreferences/);
+  assert.match(guest, /ROUTES\.PrivacyNotice, params: \{ fromGuest: true \}/);
+  assert.ok(!/ROUTES\.Home/.test(guest));
 });
 
 test("the scanner sends unfinished guests back to onboarding", () => {
@@ -155,6 +160,20 @@ test("English and Arabic texts exist", () => {
   assert.equal(translateIn("en", "guest.title" as any), "Set your preferences before scanning");
   assert.equal(translateIn("en", "guest.savedOnDevice" as any), "Your allergy preferences are saved on this device.");
   assert.equal(translateIn("en", "guest.noAllergies" as any), "No allergies");
+});
+
+test("guest Privacy Notice → guest setup (device only, no Supabase)", () => {
+  const notice = read("screens/PrivacyNoticeScreen.tsx");
+  assert.match(notice, /navigation\.replace\(ROUTES\.GuestPreferences\)/);
+  const accept = notice.slice(notice.indexOf("async function acceptPrivacyNotice"));
+  const guestBranch = accept.slice(accept.indexOf("} else {"), accept.indexOf("} catch"));
+  assert.ok(!/supabase/.test(guestBranch), "guest acceptance is not sent to Supabase");
+});
+
+test("guest setup asks halal and uses several-at-once allergy entry", () => {
+  const screen = read("screens/GuestPreferencesScreen.tsx");
+  assert.match(screen, /t\("guest\.halalQuestion"\)/);
+  assert.match(screen, /addAllergyEntries\(customInput, allergies, customAllergies\)/);
 });
 
 test("onboarding uses themed components and RTL-safe spacing", () => {

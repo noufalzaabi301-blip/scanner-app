@@ -1,7 +1,7 @@
 -- ---------------------------------------------------------------------------
 -- supabase/sql/user_database_inspect.sql
 -- READ-ONLY. Run in the SQL editor of the USER database project
--- (https://lqbbbzoleutjhlfkljae.supabase.co → SQL Editor).
+-- (your USER project → SQL Editor).
 --
 -- Shows the real tables, columns, Row Level Security switches, policies and
 -- grants for the customer tables, so the migration

@@ -1,6 +1,11 @@
 // ---------------------------------------------------------------------------
 // scripts/testPrivacyOnce.ts
-// The Privacy Notice is shown once per version; the acceptance persists.
+// Privacy Notice order and "once per version":
+//   Welcome → Login / Create account → (signed in) → Privacy Notice →
+//   allergy + halal setup → Scan
+//   Welcome → Continue as guest → Privacy Notice → guest setup → Scan
+// Never before Login / Create account; skipped once accepted; still
+// readable from Profile.
 // Run with:  npx tsx scripts/testPrivacyOnce.ts
 // ---------------------------------------------------------------------------
 
@@ -31,6 +36,7 @@ function test(name: string, run: () => void) {
 
 const root = join(__dirname, "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
+const code = (path: string) => read(path).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
 
 test("acceptance is stored with its version and date", () => {
   const saved = serializeDeviceAcceptance("1.2", new Date("2026-11-18T10:00:00Z"));
@@ -48,44 +54,74 @@ test("a new notice version is asked again", () => {
 });
 
 test("the account gets the same acceptance record", () => {
-  const meta = privacyMetadataFrom({ version: "1.2", acceptedAt: "2026-11-18T10:00:00.000Z" });
-  assert.deepEqual(meta, {
+  assert.deepEqual(privacyMetadataFrom({ version: "1.2", acceptedAt: "2026-11-18T10:00:00.000Z" }), {
     privacy_accepted: true,
     privacy_version: "1.2",
     privacy_accepted_at: "2026-11-18T10:00:00.000Z",
   });
 });
 
-test("Accept saves the acceptance on the device", () => {
-  assert.match(read("screens/PrivacyNoticeScreen.tsx"), /await saveDeviceAcceptance\(\);/);
+test("Welcome never opens the notice (not before Login / Create account)", () => {
+  const welcome = code("screens/WelcomeScreen.tsx");
+  assert.ok(!/PrivacyNotice/.test(welcome), "no PrivacyNotice route on Welcome");
+  assert.ok(!/hasDeviceAcceptedPrivacy/.test(welcome));
 });
 
-test("sign-up skips the notice when already accepted on this device", () => {
-  const register = read("screens/RegisterScreen.tsx");
-  const fn = register.slice(register.indexOf("async function continueToPrivacyNotice"));
-  assert.ok(fn.indexOf("hasDeviceAcceptedPrivacy()") < fn.indexOf('navigate("PrivacyNotice"'));
-  assert.match(register, /deviceAcceptanceMetadata\(\)/);
+test("Login and Create account screens never open the notice before auth", () => {
+  const register = code("screens/RegisterScreen.tsx");
+  assert.ok(!/PrivacyNotice/.test(register), "Register does not open the notice itself");
+  // Sign-up with a session → routeAfterSignIn (notice after authentication).
+  assert.ok(register.indexOf("supabase.auth.signUp") < register.indexOf("routeAfterSignIn(data.user)"));
+  const login = code("screens/LoginScreen.tsx");
+  assert.ok(login.indexOf("signInWithPassword") < login.indexOf('name: "PrivacyNotice"'), "only after sign-in");
 });
 
-test("login and app start reuse the device acceptance", () => {
-  assert.match(read("screens/LoginScreen.tsx"), /await ensureAccountPrivacy\(user\.user_metadata\)/);
+test("after sign-in: notice (if needed) → setup → scan", () => {
+  const route = code("lib/postAuthRoute.ts");
+  const signIn = route.slice(route.indexOf("export async function routeAfterSignIn"), route.indexOf("export async function routeForGuest"));
+  assert.ok(signIn.indexOf("ensureAccountPrivacy") < signIn.indexOf("hasSavedPreferences"));
+  assert.match(signIn, /ROUTES\.PrivacyNotice, params: \{ fromLogin: true \}/);
+  assert.match(signIn, /ROUTES\.Home\s*:\s*ROUTES\.Preferences/);
+  // Accepting as a signed-in user continues to setup or the scanner.
+  const notice = code("screens/PrivacyNoticeScreen.tsx");
+  assert.match(notice, /hasPreferences \? "Home" : "Preferences"/);
+});
+
+test("guest: Continue as guest → notice (if needed) → guest setup", () => {
+  const route = code("lib/postAuthRoute.ts");
+  const guest = route.slice(route.indexOf("export async function routeForGuest"));
+  assert.match(guest, /hasDeviceAcceptedPrivacy\(\)/);
+  assert.match(guest, /ROUTES\.GuestPreferences/);
+  assert.match(guest, /fromGuest: true/);
+});
+
+test("accepting saves the acceptance (shown once per version)", () => {
+  const notice = code("screens/PrivacyNoticeScreen.tsx");
+  assert.match(notice, /await saveDeviceAcceptance\(\);/);
+  assert.match(notice, /privacy_version: PRIVACY_VERSION/);
+  // App start with a session skips it once accepted on the account/device.
   assert.match(read("App.tsx"), /await ensureAccountPrivacy\(user\.user_metadata\)/);
 });
 
-test("Welcome opens the notice at most once (effect guard)", () => {
-  const welcome = read("screens/WelcomeScreen.tsx");
-  assert.match(welcome, /let cancelled = false;/);
-  assert.match(welcome, /if \(cancelled\) \{\s*return;\s*\}\s*if \(!privacyAccepted\)/);
-  assert.equal((welcome.match(/replace\("PrivacyNotice"/g) ?? []).length, 1);
+test("only signed-in or guest modes show Accept; old pre-login modes are gone", () => {
+  const notice = code("screens/PrivacyNoticeScreen.tsx");
+  assert.match(notice, /const showConsentControls = \(fromLogin \|\| fromGuest\) && !readOnly;/);
+  for (const file of ["App.tsx", "screens/PrivacyNoticeScreen.tsx", "screens/RegisterScreen.tsx", "screens/WelcomeScreen.tsx"]) {
+    assert.ok(!/fromAppStart|fromSignup/.test(code(file)), `${file}: no pre-login notice`);
+  }
 });
 
-test("the notice is one route only (not also a global banner / modal)", () => {
+test("the notice is one route only (not also global / embedded)", () => {
   const app = read("App.tsx");
   assert.equal((app.match(/name="PrivacyNotice"/g) ?? []).length, 1);
-  assert.equal((app.match(/<PrivacyNoticeScreen/g) ?? []).length, 0, "not rendered globally");
-  for (const file of ["App.tsx", "screens/HomeScreen.tsx", "screens/ProfileScreen.tsx", "screens/LoginScreen.tsx"]) {
-    assert.ok(!/import PrivacyNoticeScreen/.test(read(file)) || file === "App.tsx", `${file} embeds the notice`);
+  assert.equal((app.match(/<PrivacyNoticeScreen/g) ?? []).length, 0);
+  for (const file of ["screens/HomeScreen.tsx", "screens/ProfileScreen.tsx", "screens/LoginScreen.tsx", "screens/WelcomeScreen.tsx"]) {
+    assert.ok(!/import PrivacyNoticeScreen/.test(read(file)), `${file} embeds the notice`);
   }
+});
+
+test("the scanner never opens the notice", () => {
+  assert.ok(!/PrivacyNotice/.test(code("screens/HomeScreen.tsx")));
 });
 
 test("Profile → Privacy Notice stays available (read-only)", () => {
@@ -93,8 +129,8 @@ test("Profile → Privacy Notice stays available (read-only)", () => {
 });
 
 test("notice texts exist in English and Arabic", () => {
-  for (const key of ["title.privacyNotice", "register.privacyAlreadyAccepted", "register.readPrivacyAgain"]) {
-    assert.ok(/[؀-ۿ]/.test(translateIn("ar", key as any)), key);
+  for (const key of ["title.privacyNotice", "privacy.acceptButton", "privacy.guestNote", "register.privacyHint"]) {
+    assert.ok(/[\u0600-\u06FF]/.test(translateIn("ar", key as any)), key);
     assert.ok(translateIn("en", key as any).length > 3, key);
   }
 });

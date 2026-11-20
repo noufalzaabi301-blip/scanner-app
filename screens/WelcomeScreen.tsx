@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { hasDeviceAcceptedPrivacy } from "../lib/privacyConsent";
+import { routeAfterSignIn, routeForGuest } from "../lib/postAuthRoute";
 import { usePageInsets } from "../lib/layout";
 import { supabase } from "../lib/supabase";
-import { ROUTES, STORAGE_KEYS } from "../lib/constants";
+import { STORAGE_KEYS } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import {
   ActivityIndicator,
@@ -12,8 +12,12 @@ import {
   // Plain (un-themed) View: the logo tile stays white in dark mode.
   View as PlainView,
 } from "react-native";
+import LanguageSwitch from "../components/LanguageSwitch";
 import {
-  SafeAreaView,
+  // Safe-area padding on iOS AND Android (the plain React Native
+  // SafeAreaView only pads on iOS), so the language switch at the top is
+  // never under the status bar / notch.
+  ContextSafeAreaView as SafeAreaView,
   Text,
   TouchableOpacity,
   View,
@@ -29,53 +33,49 @@ export default function WelcomeScreen({ navigation }: any) {
 
   useEffect(() => {
     // Guard: this check runs once per visit. In development React runs
-    // effects twice; without the guard both runs could open the Privacy
-    // Notice, stacking two copies.
+    // effects twice; without the guard both runs could navigate twice.
     let cancelled = false;
 
+    // The Privacy Notice is NOT shown here: it comes only after Login /
+    // Create account or after "Continue as guest" (lib/postAuthRoute.ts).
     async function chooseStartScreen() {
       try {
-        // Show the Privacy Notice only once on this device (per version).
-        const privacyAccepted = await hasDeviceAcceptedPrivacy();
+        const hasOpenedBefore =
+          await AsyncStorage.getItem(HAS_OPENED_KEY);
 
         if (cancelled) {
           return;
         }
 
-        if (!privacyAccepted) {
-          navigation.replace("PrivacyNotice", {
-            fromAppStart: true,
-          });
-          return;
-        }
-
-        const hasOpenedBefore =
-          await AsyncStorage.getItem(HAS_OPENED_KEY);
-
-        // First normal Welcome-page visit after accepting Privacy.
+        // First Welcome visit on this device.
         if (!hasOpenedBefore) {
-          await AsyncStorage.setItem(
-            HAS_OPENED_KEY,
-            "true"
-          );
-
+          await AsyncStorage.setItem(HAS_OPENED_KEY, "true");
           setCheckingStart(false);
           return;
         }
 
-        // Later openings: go straight to Home when signed in.
+        // Later openings: a signed-in user continues (Privacy Notice if
+        // not accepted yet, first-time setup, or the scanner).
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (session && !cancelled) {
-          navigation.replace("Home");
+        if (session?.user && !cancelled) {
+          const next = await routeAfterSignIn(session.user);
+
+          if (!cancelled) {
+            navigation.reset({ index: 0, routes: [next] });
+          }
           return;
         }
 
-        setCheckingStart(false);
+        if (!cancelled) {
+          setCheckingStart(false);
+        }
       } catch {
-        setCheckingStart(false);
+        if (!cancelled) {
+          setCheckingStart(false);
+        }
       }
     }
 
@@ -94,39 +94,53 @@ export default function WelcomeScreen({ navigation }: any) {
       scope: "local",
     });
 
-    navigation.navigate(ROUTES.GuestPreferences);
+    // Privacy Notice first (only if this version was not accepted on this
+    // device yet), then the guest allergy + halal setup. Welcome stays
+    // underneath, so Back returns here.
+    const next = await routeForGuest();
+    navigation.navigate(next.name, next.params);
   }
 
   if (checkingStart) {
     return (
-      <SafeAreaView style={styles.loadingPage}>
+      <SafeAreaView style={styles.loadingPage} edges={["top", "bottom"]}>
         <ActivityIndicator size="large" color="#176B43" />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.page}>
+    <SafeAreaView style={styles.page} edges={["top", "bottom"]}>
       <View style={styles.hero}>
         <View style={styles.circleLeft} />
         <View style={styles.circleRight} />
 
-        {/* LabelLens logo (assets/logo-mark.png). The white tile keeps the
-            black outline visible in dark mode too. */}
-        <PlainView style={styles.logo}>
-          <Image
-            source={require("../assets/logo-mark.png")}
-            style={styles.logoImage}
-            resizeMode="contain"
-            accessibilityLabel="LabelLens logo"
-          />
-        </PlainView>
+        {/* English / العربية selector: in the normal layout flow (not
+            absolute), above the decorative circles, so it is never hidden
+            or pushed off-screen. Same saved setting as Login, Register and
+            Profile → Language. */}
+        <View style={[styles.topBar, pageInsets]}>
+          <LanguageSwitch style={styles.languageSwitch} />
+        </View>
 
-        <Text style={styles.title}>LabelLens</Text>
+        <View style={styles.heroBody}>
+          {/* LabelLens logo (assets/logo-mark.png). The white tile keeps the
+              black outline visible in dark mode too. */}
+          <PlainView style={styles.logo}>
+            <Image
+              source={require("../assets/logo-mark.png")}
+              style={styles.logoImage}
+              resizeMode="contain"
+              accessibilityLabel="LabelLens logo"
+            />
+          </PlainView>
 
-        <Text style={styles.subtitle}>
-          {t("welcome.subtitle")}
-        </Text>
+          <Text style={styles.title}>LabelLens</Text>
+
+          <Text style={styles.subtitle}>
+            {t("welcome.subtitle")}
+          </Text>
+        </View>
       </View>
 
       <View style={[styles.content, pageInsets]}>
@@ -180,10 +194,25 @@ const styles = StyleSheet.create({
 
   hero: {
     height: "46%",
+    minHeight: 250,
     backgroundColor: "#E8F5E9",
+    overflow: "hidden",
+  },
+
+  topBar: {
+    width: "100%",
+    paddingTop: 10,
+    zIndex: 2, // above the decorative circles
+  },
+
+  languageSwitch: {
+    marginBottom: 0,
+  },
+
+  heroBody: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    overflow: "hidden",
   },
 
   circleLeft: {

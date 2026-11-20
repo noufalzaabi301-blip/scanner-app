@@ -1,14 +1,18 @@
 // ---------------------------------------------------------------------------
 // screens/PrivacyNoticeScreen.tsx
 // Shows the Privacy Notice.
-// - fromSignup:   shown by Register BEFORE the account is created. The user
-//                 must tick and accept; only then does it return to Register
-//                 (privacyAccepted: true), which creates the account.
-// - fromLogin:    signed-in user who has not accepted the current notice.
-//                 Accepting saves it to the account, then continues to
-//                 Preferences or Home. "Log out" is the only other way out.
-// - fromAppStart: first launch on this device (Welcome flow).
-// - readOnly:     opened from Profile, no buttons.
+// It is NEVER shown before Login / Create account (lib/postAuthRoute.ts):
+// - fromLogin:  signed in (Login, sign-up or app start) and the current
+//               version is not accepted yet. Accepting saves it to the
+//               account and this device, then continues to the first-time
+//               allergy + halal setup or the scanner. "Log out" is the
+//               only other way out.
+// - fromGuest:  "Continue as guest" and this version was not accepted on
+//               this device. Accepting saves it on the device only (no
+//               Supabase), then opens the guest allergy + halal setup.
+//               Back returns to Welcome.
+// - readOnly:   opened from Profile, no buttons.
+// Shown once per notice version (PRIVACY_VERSION).
 // The product-submission choice is not asked here; it lives only in
 // Preferences.
 // ---------------------------------------------------------------------------
@@ -20,7 +24,7 @@ import {
 
 import { saveDeviceAcceptance } from "../lib/privacyConsent";
 import { usePageInsets } from "../lib/layout";
-import { PRIVACY_VERSION } from "../lib/constants";
+import { PRIVACY_VERSION, ROUTES } from "../lib/constants";
 import { useI18n, type TranslationKey } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
@@ -46,13 +50,11 @@ export default function PrivacyNoticeScreen({ navigation, route }: any) {
   // Shared responsive side padding (lib/layout.ts).
   const pageInsets = usePageInsets();
 
-  const fromAppStart = route?.params?.fromAppStart === true;
-  const fromSignup = route?.params?.fromSignup === true;
   const fromLogin = route?.params?.fromLogin === true;
+  const fromGuest = route?.params?.fromGuest === true;
   const readOnly = route?.params?.readOnly === true;
 
-  const showConsentControls =
-    (fromAppStart || fromSignup || fromLogin) && !readOnly;
+  const showConsentControls = (fromLogin || fromGuest) && !readOnly;
 
   // Required: explicit acceptance. Never set automatically.
   const [accepted, setAccepted] = useState(false);
@@ -107,12 +109,9 @@ export default function PrivacyNoticeScreen({ navigation, route }: any) {
 
       if (fromLogin) {
         await acceptForSignedInUser();
-      } else if (fromSignup) {
-        // Back to the SAME Register screen (its form is kept) so it can
-        // finish creating the account. popTo avoids a second Register.
-        navigation.popTo("Register", { privacyAccepted: true });
       } else {
-        navigation.replace("Welcome");
+        // Guest: allergy + halal setup next (Welcome stays underneath).
+        navigation.replace(ROUTES.GuestPreferences);
       }
     } catch {
       showMessage(t("privacy.saveFailedTitle"), t("privacy.saveFailedBody"));
@@ -142,6 +141,10 @@ export default function PrivacyNoticeScreen({ navigation, route }: any) {
 
         {showConsentControls && (
           <>
+            {fromGuest && (
+              <Text style={styles.paragraph}>{t("privacy.guestNote")}</Text>
+            )}
+
             <TouchableOpacity
               style={styles.consentRow}
               onPress={() => setAccepted((value) => !value)}

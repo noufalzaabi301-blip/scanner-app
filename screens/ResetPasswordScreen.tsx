@@ -10,12 +10,13 @@ import {
 } from "react-native";
 
 import { useI18n } from "../lib/i18n";
+// Show / Hide button on both password fields.
+import PasswordInput from "../components/PasswordInput";
 import { supabase } from "../lib/supabase";
 import { showMessage } from "../lib/ui/messages";
 import {
   SafeAreaView,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "../components/Themed";
@@ -117,21 +118,19 @@ export default function ResetPasswordScreen({ navigation }: any) {
 
         <Text style={styles.label}>{t("reset.newPassword")}</Text>
 
-        <TextInput
+        <PasswordInput
           style={styles.input}
           value={password}
           onChangeText={setPassword}
-          secureTextEntry
           placeholder={t("reset.newPassword")}
         />
 
         <Text style={styles.label}>{t("reset.confirm")}</Text>
 
-        <TextInput
+        <PasswordInput
           style={styles.input}
           value={confirmPassword}
           onChangeText={setConfirmPassword}
-          secureTextEntry
           placeholder={t("reset.confirmPlaceholder")}
         />
 
